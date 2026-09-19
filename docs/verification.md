@@ -1,5 +1,35 @@
 # Verification status
 
+## Agent integration release, 19 September 2026
+
+Runtime `f037b86` is deployed on the existing AWS host. All 120 local tests, Ruff
+checks and dependency consistency passed. [CI passed](https://github.com/macrovise/career-search-mcp/actions/runs/35462328091).
+Direct HTTP acceptance confirmed 12 read-only tools, the five-field role contract,
+portable evidence replay and unchanged durable state during read-only calls. All five
+configured sources returned successful fetches. The saved profile contains two CV
+variants and 26 literal skill citations; UK work rights are confirmed and Algeria is
+only a future working destination. No CV was transmitted to job providers.
+
+A real Jobicy connector result passed external evidence assessment, CV-specific scoring,
+handoff export and controlled administrator import. Repeated imports returned the same
+saved ID. Its listing returned an observed HTTP 200; this is not employer application
+liveness verification. Applied-state preservation is tested with regression fixtures.
+
+Both existing agents saved and re-read the integration amendment in their existing task
+prompts, preserving other plugins, schedules, enabled states and notification preferences.
+The Application task remains enabled; the Worldwide task remains disabled. Both original
+conversations explicitly selected Career Search and attempted `get_profile`, but received
+`FORBIDDEN: This conversation does not support developer MCPs`. They also lack verified
+Library writes. Their direct MCP integration and automatic shared persistence are blocked.
+
+The existing developer-compatible verification conversation successfully called
+`get_profile`, live search and `score_fit`, confirming the new profile and all five fields.
+Its tool inventory still lacked the two new tool names: ChatGPT plugin refresh is pending
+because the Mac locked during the UI step. Server tests do not establish ChatGPT access
+to those two tools. No replacement conversations or schedules were created.
+
+## Historical live-search release
+
 Updated 19 September 2026 after deploying revision
 `baf2013293169b6196323b2de50ac8b1103316c3`. Server-side AWS verification covers the new
 live-search tool and the role-title relevance fix. ChatGPT Settings lists the refreshed
