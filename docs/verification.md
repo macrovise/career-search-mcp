@@ -43,8 +43,8 @@ keeps direct MCP checks, advertised metadata, and actual ChatGPT calls separate.
   **106 local tests passed.**
 
 Fresh retrieval is not a promise of complete provider inventory. The search is bounded by
-provider availability and response limits; Scout and Adzuna remain disabled for the
-external reasons below.
+provider availability and response limits. Adzuna was subsequently enabled and verified
+as described below; Scout remains disabled.
 
 ## ChatGPT status
 
@@ -97,16 +97,47 @@ uploaded to a job source.
 | Remotive | Live normalized results verified through the AWS adapter and the new live-search call. |
 | Jobicy | Live normalized results verified through the AWS adapter and the new live-search call. |
 | We Work Remotely | Live normalized results verified through the AWS adapter and the new live-search call. |
-| Adzuna | Official GB adapter and mocked tests are in place; disabled until an app ID and key are configured. No authenticated live result is claimed. |
+| Adzuna | Enabled on AWS on 19 September with privately configured credentials. Official GB searches, evidence reads, watcher persistence, repeat deduplication and an actual ChatGPT call passed. |
 | Scout | Optional discovery scaffold remains disabled. Its provider rejected ChatGPT's OAuth callback because it is not on the callback allowlist; live schema, token, and search remain unverified. |
 
 An independent Scout OAuth attempt on 19 September also remained blocked: metadata
 discovery succeeded and client registration returned HTTP 201, but authorization returned
 HTTP 400 `invalid_request`: `redirect_uri is not on the allowlist of known MCP client callback URLs`.
 The client used its own registered loopback callback, not another application's callback.
-No access token was issued, and Scout was not enabled. A read-only AWS configuration check
-also confirmed that the Adzuna app ID/key and Scout token are absent. Completing provider
-authorization remains necessary before either source can be advertised as working.
+No access token was issued, and Scout was not enabled. The initial AWS check found both
+providers' credentials absent; Adzuna was subsequently configured as recorded below.
+Scout's unauthenticated MCP initialization also returned HTTP 401 with the advertised
+OAuth resource-metadata challenge. The rejection happens at the provider's authorization
+endpoint before token issuance, not in our AWS transport or result normalization.
+Scout must correct its callback policy or provide a supported client configuration;
+disabling auth or impersonating another client's callback is not a repair.
+
+### Adzuna deployment and acceptance, 19 September 2026
+
+Existing credentials were transferred privately, verified against the official API from
+AWS, and saved in the root-owned mode-0600 environment file. `adzuna` was added to
+`CAREER_SOURCES`; the MCP process was restarted, and the MCP, tunnel and watcher timer
+remained active. No new resources, paid AI calls, or account upgrades were introduced.
+The temporary local credential file was removed after configuration.
+
+- Direct MCP search for Technical Support Engineer fetched 8 rows, retained 6 literal
+  role matches and filtered 2 unrelated rows. At limit 20 it returned 5 reviewable jobs
+  and 1 excluded job. Job detail and all three job-evidence tools passed.
+- Application Support fetched 14 rows but none passed the literal role-title filter.
+  This is an explicit zero-match success, not a provider access failure.
+- All six watcher queries reported Adzuna status `ok`. The database contains 31 records
+  with Adzuna provenance and 139 total records. Repeating a cached discovery did not
+  add records or change their lifecycle states or first-seen timestamps.
+- A real ChatGPT call at `2026-09-19T18:12:25.561881+00:00` used only `sources=["adzuna"]`.
+  Its inspected tool response contained 4 jobs and 1 excluded job at limit 5,
+  `total_count=6`, `returned_count=5`, `truncated=true`, `persisted=false`, and
+  `application_submitted=false`. `get_job_detail` and `score_fit` then succeeded on
+  a fresh Formlabs live ID. ChatGPT's prose omitted the excluded job title; the tool
+  response, rather than that prose, is the verification evidence.
+
+Some Adzuna salaries are estimates, and some remote eligibility remains `unknown` in
+the normalized data. These remain explicit evidence limitations for ChatGPT to review;
+retrieval is not a recommendation or proof of eligibility.
 
 Source snapshots are bounded, not exhaustive. Provider filters can return irrelevant or
 incomplete results. Review the title, full description, salary evidence, employment type,

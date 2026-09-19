@@ -185,7 +185,9 @@ ADZUNA_APP_KEY=<issued app key>
 Add `adzuna` to `CAREER_SOURCES` to enable it. The adapter calls Adzuna's official GB search
 endpoint (`https://api.adzuna.com/v1/api/jobs/gb/search/1`) and requires both credentials.
 The [Adzuna API overview](https://developer.adzuna.com/overview) documents those required
-parameters and JSON response format. No Adzuna account or credentials have been created.
+parameters and JSON response format. Trevor completed registration; the existing AWS
+deployment was configured privately and verified on 19 September 2026. See
+[verification results](verification.md) for actual MCP, watcher and ChatGPT checks.
 
 ## Connect Stage 1 sources in ChatGPT
 
