@@ -100,6 +100,14 @@ uploaded to a job source.
 | Adzuna | Official GB adapter and mocked tests are in place; disabled until an app ID and key are configured. No authenticated live result is claimed. |
 | Scout | Optional discovery scaffold remains disabled. Its provider rejected ChatGPT's OAuth callback because it is not on the callback allowlist; live schema, token, and search remain unverified. |
 
+An independent Scout OAuth attempt on 19 September also remained blocked: metadata
+discovery succeeded and client registration returned HTTP 201, but authorization returned
+HTTP 400 `invalid_request`: `redirect_uri is not on the allowlist of known MCP client callback URLs`.
+The client used its own registered loopback callback, not another application's callback.
+No access token was issued, and Scout was not enabled. A read-only AWS configuration check
+also confirmed that the Adzuna app ID/key and Scout token are absent. Completing provider
+authorization remains necessary before either source can be advertised as working.
+
 Source snapshots are bounded, not exhaustive. Provider filters can return irrelevant or
 incomplete results. Review the title, full description, salary evidence, employment type,
 and location eligibility. A live Himalayas MCP search with a £40k preference returned a
