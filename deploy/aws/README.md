@@ -1,7 +1,9 @@
 # AWS deployment using the private ChatGPT tunnel
 
-This directory prepares a single Ubuntu 24.04 x86_64 server. It has not, by itself,
-created an AWS instance or verified a ChatGPT conversation. Use an eligible EC2
+This directory prepares a single Ubuntu 24.04 x86_64 server. The London deployment
+passed migration, live discovery, private tunnel and reboot checks on 19 September
+2026; see [verification status](../../docs/verification.md) for the separate
+ChatGPT conversation result. Use an eligible EC2
 `t3.small` (2 GiB RAM) while evaluating the AWS Free plan. Verify the account's
 current plan, credits, regional launch estimate and expiry before launching.
 Lightsail requires a Paid plan; do not upgrade implicitly. Credits are temporary,
@@ -13,6 +15,9 @@ and budget alerts are notifications rather than spending limits.
 - Encrypted gp3 storage, initially 20 GiB. Preserve the data volume on termination.
 - No application IAM role or AWS API credentials are needed.
 - No public HTTP, HTTPS, 8383 or 8384 inbound rules. The private tunnel connects out.
+- Preserve outbound DNS, HTTPS and the official tunnel client's required egress.
+  The verified deployment uses the security group's default outbound rule; a
+  custom egress policy needs its own connectivity checks.
 - If using SSH, allow port 22 only from the administrator's current IP, with a key.
 - Do not put runtime keys, API keys or database contents in EC2 user data.
 - Confirm recurring compute, storage and public IPv4 costs in the chosen region.
