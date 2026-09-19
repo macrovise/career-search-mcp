@@ -1,5 +1,13 @@
 # Architecture and evidence contract
 
+## Agent integration extension
+
+See [Shared Career agent contract v1](agent-integration.md) for the new five-field result
+contract, two CV variants, plugin evidence assessment, portable handoff and host-only
+admin writes. The current code exposes 12 read-only tools and 16 tools in full mode.
+`import_job_evidence` is a write and is removed in read-only mode. The older transport
+and deployment notes below describe the original 10/13-tool release.
+
 ## Main workflow
 
 `server.main` loads environment configuration, builds OAuth validation, opens `Store`,

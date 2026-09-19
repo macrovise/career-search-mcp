@@ -41,13 +41,13 @@ It runs only while this process is running; no background system service is inst
 
 ChatGPT Pro supports custom MCP apps with read/fetch permissions in Developer Mode;
 write-capable MCP access is currently limited to Business, Enterprise, and Edu. For Pro,
-run the MCP server with `CAREER_READ_ONLY=true`. The 10-tool read-only surface includes
+run the MCP server with `CAREER_READ_ONLY=true`. The 12-tool read-only surface includes
 `search_saved_jobs` for watcher-collected records and `search_live_jobs` for an on-demand
 query against configured, enabled providers. Live search bypasses the server's source cache
 and does not persist results; it still needs network access and provider results can be
 limited or incomplete. The four evidence and writing-preparation tools remain available.
 Profile saving and lifecycle changes are not available through the Pro connection. The
-10-tool read-only revision is deployed on AWS and its live-search flow passed direct MCP
+earlier 10-tool read-only revision was deployed on AWS and its live-search flow passed direct MCP
 HTTP checks. ChatGPT Settings refreshed successfully and showed the ten READ tools; a
 real ChatGPT call then verified live search and follow-up evidence reads. A relevance fix
 now requires role-title evidence, preventing unrelated descriptions from filling the
@@ -58,6 +58,16 @@ No tunnel, API key, Adzuna account, subscription change, or deployment is provis
 automatically. Optional Adzuna credentials require registration with the
 [Adzuna developer site](https://developer.adzuna.com/signup); setup details are in the
 deployment guide.
+
+## Shared career agents
+
+The shared result contract adds HTTP Status, Eligibility/Compatibility, estimated ATS
+keyword coverage, Fetched_at and Source to each role. Existing job plugins can pass
+evidence to `assess_job_evidence` without network calls or persistence.
+`prepare_handoff` exports portable evidence for the other agent; an authorised host-only
+`career-admin` command supports profile saving, handoff import and lifecycle updates.
+Two CV variants share one factual profile. See [agent integration](docs/agent-integration.md)
+for the exact contract, read-only boundaries and incomplete automatic handoff limitations.
 
 ## Development checks
 
