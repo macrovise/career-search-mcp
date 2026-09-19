@@ -82,15 +82,16 @@ in a root-owned file and delivered through systemd credentials. The MCP service 
 `127.0.0.1:8383`; no inbound public application port is open. The Mac tunnel runtime is
 stopped.
 
-Historical verification on 19 September 2026 covered the nine-tool read-only interface:
-a fresh ChatGPT Chat conversation successfully called `get_profile`, `search_saved_jobs`
-and all four evidence tools through AWS. The original conversation rejected developer
-MCPs; use a fresh conversation if that error appears. The watcher ran every six hours,
-daily database backups were enabled, and a reboot preserved 107 saved jobs and restored
-all services and timers. The updated code adds `search_live_jobs`, for 10 read-only tools
-and 13 tools in the full interface. That new tool has not yet been verified on the AWS
-deployment or in ChatGPT. See [verification status](verification.md) for the earlier
-evidence and remaining limits.
+Historical ChatGPT verification on 19 September covered the earlier nine-tool interface:
+a fresh Chat conversation successfully called `get_profile`, `search_saved_jobs` and all
+four evidence tools through AWS. That remains evidence for those six calls, not for the
+new live-search tool. The current AWS revision, `fef4d8ae2d1ace9bf45ed08e183506f1df4eb45d`,
+exposes 10 read-only tools and 13 tools in the full interface. Direct MCP HTTP verification
+searched for `Technical Support Engineer` with a limit of 10, returned 10 reviewable jobs
+from 38 total, then passed a live ID to `get_job_detail`, `score_fit`, `tailor_resume`,
+and `cover_letter_brief`. The complete SQLite dump digest was unchanged before and after.
+The updated live tool has not yet been invoked inside ChatGPT; that check is pending Mac access. See
+[verification status](verification.md) for the separate server and ChatGPT evidence.
 
 Use the [AWS deployment guide](../deploy/aws/README.md) for the active hosted setup.
 The following Mac instructions describe a local alternative; switching back requires
@@ -232,15 +233,17 @@ After tunnel access and the local runtime are verified as described above:
    provisioned tunnel ID.
 2. Select Career Search MCP in the conversation's Plugins/tools menu (called Apps in the
    current Help Center) and inspect the tool list. With `CAREER_READ_ONLY=true`,
-   `search_jobs`, `save_profile`, and `update_status` should not be listed. After deploying
-   the live-search revision, expect 10 read-only tools, including `search_live_jobs`; the
-   existing AWS deployment was verified with the earlier nine-tool interface.
+   `search_jobs`, `save_profile`, and `update_status` should not be listed. The current AWS
+   revision exposes 10 read-only tools, including `search_live_jobs`; direct server HTTP
+   checks passed. The earlier ChatGPT conversation still records the nine-tool interface,
+   so refresh and verify the ChatGPT tool list when Mac access is available.
 3. Call `search_saved_jobs` with a role query such as `Technical Support Engineer`; verify
    the response reports saved listings only and returns pagination/coverage information.
    Run the local watcher separately for new source searches and persistence.
 4. Call `search_live_jobs` with a relevant role query. Check the per-source fetch time and
    failure status, `cached: false`, and the returned/truncated counts. Its `live:` IDs are
-   temporary; use one with `get_job_detail` or an evidence tool while it is available.
+   temporary; use one with `get_job_detail` or an evidence tool while it is available. The
+   AWS HTTP acceptance passed these checks; a corresponding ChatGPT call is still pending.
 5. For a saved or live job ID, call `score_fit`, `tailor_resume`, and `cover_letter_brief`
    to prepare evidence for ChatGPT's reasoning. `build_profile` prepares a profile draft
    but cannot save it through the Pro connection. To save a reviewed profile or change a

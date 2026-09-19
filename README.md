@@ -47,10 +47,11 @@ query against configured, enabled providers. Live search bypasses the server's s
 and does not persist results; it still needs network access and provider results can be
 limited or incomplete. The four evidence and writing-preparation tools remain available.
 Profile saving and lifecycle changes are not available through the Pro connection. The
-previous AWS verification covered the nine-tool interface before live search was added;
-verify the new tool after deploying its revision. This reflects current OpenAI documentation;
-it does not confirm tunnel access or a working ChatGPT connection for any particular account.
-See [the tunnel and Pro setup guide](docs/deployment.md).
+10-tool read-only revision is deployed on AWS and its live-search flow passed direct MCP
+HTTP checks. A new invocation inside ChatGPT is still pending; the earlier nine-tool
+ChatGPT checks remain historical evidence. This reflects current OpenAI documentation;
+it does not establish a refreshed ChatGPT tool list for every account. See
+[verification status](docs/verification.md) and [the tunnel and Pro setup guide](docs/deployment.md).
 
 No tunnel, API key, Adzuna account, subscription change, or deployment is provisioned
 automatically. Optional Adzuna credentials require registration with the

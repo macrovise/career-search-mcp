@@ -1,113 +1,98 @@
 # Verification status
 
-Snapshot: 19 September 2026. This file separates server/API tests from ChatGPT verification.
+Updated 19 September 2026 after deploying revision
+`fef4d8ae2d1ace9bf45ed08e183506f1df4eb45d`. Server-side AWS verification covers the new
+live-search tool. ChatGPT verification of the refreshed 10-tool interface and a live search
+is still pending because the Mac is locked. This file keeps direct MCP checks separate
+from ChatGPT request cards.
 
-## ChatGPT integration status
+## Current AWS release
 
-- Career Search MCP is connected as a custom app with nine read-only tools. The
-  original conversation rejected developer MCP calls, but a fresh Chat conversation
-  successfully called the AWS service through the existing private tunnel.
-- Actual ChatGPT request/response cards verified `get_profile` and
-  `search_saved_jobs` (`Support Engineer`, limit 5, five returned records). The
-  search response reported `persisted=false` and `application_submitted=false`.
-- All four evidence tools also returned real data inside ChatGPT: `build_profile`
-  used an explicitly synthetic fixture and returned `saved=false`; `score_fit`,
-  `tailor_resume` and `cover_letter_brief` used an actual saved job. Every response
-  identified `reasoning_owner=ChatGPT`. Writing briefs returned `saved=false` and
-  `application_submitted=false`. No candidate profile was invented or persisted.
-- Himalayas Remote Jobs also passed actual `search_jobs` calls inside the fresh
-  ChatGPT conversation. Page-one searches for Support Engineer reported 154 UK
-  matches and 41 worldwide matches; Technical Support Engineer reported 113 UK
-  and 32 worldwide matches. These are provider-reported totals, not a count of
-  unique retrieved jobs. Inputs used `type=full-time`, `salary_min=40000`,
-  `currency=GBP`, `salary_required=false` and `sort=recent`.
-- Himalayas returned Canonical Software Support Engineer and Software Engineer -
-  L3 Support listings. Full-time does not establish permanent employment, and
-  salary and legal location eligibility still require evidence review. The
-  public endpoint is `https://mcp.himalayas.app/mcp`; its unauthenticated MCP
-  initialize, tool listing and direct search also passed earlier.
-- Scout's endpoint returned 401 and OAuth discovery. Its provider rejected ChatGPT's
-  callback because it was not on the callback allowlist. No token, live
-  schema, or search was obtained.
+- The deployed revision is `fef4d8ae2d1ace9bf45ed08e183506f1df4eb45d`. Direct MCP HTTP
+  listed exactly 10 read-only tools; the full interface has 13 tools.
+- `search_live_jobs("Technical Support Engineer", limit=10)` returned 10 reviewable jobs
+  from 38 total and set `truncated=true`. Each configured live provider reported
+  `cached=false` and `status=ok`:
 
-## Source adapters
+  | Provider | Results | Fetched |
+  |---|---:|---|
+  | Himalayas | 4 | 2026-09-19 12:42:33-34 UTC |
+  | Remotive | 5 | 2026-09-19 12:42:33-34 UTC |
+  | Jobicy | 23 | 2026-09-19 12:42:33-34 UTC |
+  | We Work Remotely | 6 | 2026-09-19 12:42:33-34 UTC |
 
-| Source | Implementation / live state |
+- Using a returned live ID, `get_job_detail` and the three job-specific evidence tools
+  (`score_fit`, `tailor_resume`, and `cover_letter_brief`) all completed successfully.
+- A full SQLite dump digest was identical before and after the live search and follow-up
+  calls, including jobs, profile, history, and source cache. The query caused no persistent
+  database changes.
+- Post-upgrade, the application, tunnel, watcher timer, and backup timer are all active
+  and enabled; the tunnel `readyz` check is ready. The most recent backup reports success
+  with exit status 0. SQLite integrity is `ok`, foreign-key failures are 0, and the job
+  count remains 107. The previous runtime backup was retained; authentication and secrets
+  were not changed.
+- The feature CI run passed all five checks: Python 3.11, 3.12, and 3.13, dependency audit,
+  and the Ubuntu installer check. See the
+  [CI run](https://github.com/macrovise/career-search-mcp/actions/runs/35443489214).
+  **89 local tests passed.**
+
+Fresh retrieval is not a promise of complete provider inventory. The search is bounded by
+provider availability and response limits; Scout and Adzuna remain disabled for the
+external reasons below.
+
+## ChatGPT status
+
+The **earlier ChatGPT verification is historical** and covered the prior nine-tool
+read-only interface. A fresh ChatGPT conversation returned real request and response
+cards for six Career Search tools: `get_profile`, `search_saved_jobs`, and all four
+evidence tools. The saved search used `Support Engineer`, limit 5, and returned five jobs
+with `persisted=false` and `application_submitted=false`. The four evidence tools returned
+real data; the synthetic `build_profile` fixture reported `saved=false`. The original
+conversation rejected developer MCP calls, so a fresh conversation was required for those
+checks.
+
+That history does not verify `search_live_jobs` in ChatGPT. The new 10-tool list and a
+live-search request from the ChatGPT app are still pending Mac access. The server-side AWS
+HTTP check above does not count as ChatGPT verification.
+
+Four Himalayas `search_jobs` calls also returned cards in the earlier fresh conversation.
+They reported 154 UK and 41 worldwide Support Engineer matches, and 113 UK and 32
+worldwide Technical Support Engineer matches. These were provider-reported totals, not
+counts of unique retrieved jobs. Full-time did not establish permanent employment, and
+salary, location, and legal eligibility still required evidence review.
+
+No applications or external messages have been sent. No résumé or personal profile was
+uploaded to a job source.
+
+## Source status and external blockers
+
+| Source | Current status |
 |---|---|
-| Himalayas | Public JSON search API; live normalized records verified |
-| Remotive | Official API; live normalized records verified |
-| Jobicy | Official API; live normalized records verified |
-| We Work Remotely | Public customer-support RSS; live normalized records verified |
-| Adzuna | Official GB API adapter and mocked tests; live blocked by missing app ID/key |
-| Scout | Opt-in MCP discovery scaffold; live schema/token/search not verified; disabled by default |
+| Himalayas | Live normalized results verified through the AWS adapter and the new live-search call. |
+| Remotive | Live normalized results verified through the AWS adapter and the new live-search call. |
+| Jobicy | Live normalized results verified through the AWS adapter and the new live-search call. |
+| We Work Remotely | Live normalized results verified through the AWS adapter and the new live-search call. |
+| Adzuna | Official GB adapter and mocked tests are in place; disabled until an app ID and key are configured. No authenticated live result is claimed. |
+| Scout | Optional discovery scaffold remains disabled. Its provider rejected ChatGPT's OAuth callback because it is not on the callback allowlist; live schema, token, and search remain unverified. |
 
-Source snapshots are bounded, not exhaustive. A provider may return irrelevant roles;
-review the title, full evidence and eligibility. Salary filters are not trusted alone:
-a live Himalayas MCP search with a £40k preference returned a disclosed sub-threshold
-role, so deterministic local exclusions are required. Salary estimates and undisclosed
-pay remain reviewable. Contract listings are excluded separately.
+Source snapshots are bounded, not exhaustive. Provider filters can return irrelevant or
+incomplete results. Review the title, full description, salary evidence, employment type,
+and location eligibility. A live Himalayas MCP search with a £40k preference returned a
+disclosed sub-threshold role, so salary evidence still needs local review.
 
-## Current deployment status
+## Earlier deployment and local validation
 
-Career Search is deployed on Ubuntu 24.04 in AWS London using a `t3.small`,
-encrypted retained 20 GiB gp3 disk and the existing private OpenAI tunnel. The
-application revision is `a8ad7ccc543ca8512014700479adf75bb26e8837`. Inbound SSH is
-restricted to the administrator's IP; no application or HTTP ports are public.
-The MCP server and tunnel health listener bind only to loopback. Separate system
-users and hardened systemd services run the application and tunnel. No AWS API
-credentials or application IAM role are present on the server. The temporary
-root CLI deployment session was signed out and its credential cache was empty.
+The initial AWS migration used revision `a8ad7ccc543ca8512014700479adf75bb26e8837`.
+Its snapshot matched the source hash and passed integrity checks. It contained 107 jobs,
+321 source identities, and 107 lifecycle events. The current revision preserves the
+107-job database and is checked separately above.
 
-The consistent migration snapshot matched the source hash and passed integrity
-checks. Fresh discovery across all six target roles succeeded for Himalayas,
-Remotive, Jobicy and We Work Remotely, producing 107 canonical jobs, 321 source
-identities and 107 lifecycle events. All jobs remain `discovered`; no profile
-record, application or external message was created.
+Earlier direct HTTP and ChatGPT checks listed nine read-only tools. Earlier local
+Streamable HTTP testing listed 11 tools before `search_saved_jobs` was added; the full
+interface then had 12 tools. These counts describe prior revisions only. The current
+revision has 10 read-only tools and 13 tools in the full interface.
 
-A real MCP HTTP client listed exactly nine read-only tools and successfully called
-`get_profile`, `search_saved_jobs` and all four evidence tools. Evidence responses
-identify ChatGPT as the reasoning owner; the synthetic `build_profile` test returned
-`saved=false`. These server checks are separate from the ChatGPT checks above.
-
-The application, private tunnel, six-hour discovery timer and daily backup timer
-are enabled and active. A real reboot changed the boot ID; both tunnel health
-checks and MCP HTTP reads passed afterward. Database counts survived unchanged,
-with SQLite integrity `ok`, zero foreign-key failures and zero orphan events.
-The old Mac tunnel runtime is stopped.
-
-Daily backups retain seven snapshots on the AWS disk. A current 107-job backup
-was downloaded to the Mac and passed integrity checking. Scheduled backups are
-not yet copied off-host automatically. The Docker daemon was unavailable locally;
-container execution remains unverified, while the systemd deployment is verified.
-
-## Automated checks and earlier local validation
-
-- 79 automated tests passed on the Mac's Python 3.14 runtime. Tests cover official API/RSS
-  adapters, opt-in Scout's mocked MCP contract, cross-source deduplication and provenance,
-  concurrent ingestion, lifecycle/follow-up persistence, evidence-only reasoning tools,
-  SSRF/redirect/response-size controls, and signed-token HTTP authentication.
-- Ruff lint and formatting passed. `pip check` reported no broken requirements.
-- Dependency audit reported no known vulnerabilities after updating pip; the unpublished
-  application itself cannot be assessed through PyPI's dependency advisory service.
-- Actual local Streamable HTTP MCP initialization and tool listing succeeded (11 tools).
-  `search_jobs` returned 28 listings across all four enabled sources; 27 remained for review
-  and one contract listing was excluded. Evidence tools succeeded for a returned job ID.
-- Restarted the local server using the same database and repeated the HTTP workflow;
-  source cache and records survived. This does not constitute ChatGPT verification.
-- The earlier local `career-watcher --once` run across all six target roles completed successfully.
-  All four enabled source calls succeeded (including cached snapshots); that local snapshot
-  contained 106 canonical listings before migration. It sent no messages or applications.
-- Compose configuration validated using the example environment. Docker runtime testing
-  remains unavailable because the Docker daemon was not running.
-- Added a read-only surface for clients with read/fetch access: `CAREER_READ_ONLY=true`
-  removes all three mutating tool handlers. Tests prove they cannot be called and
-  saved-job search leaves database contents unchanged. The four reasoning tools remain.
-- An actual loopback Streamable HTTP smoke test listed nine read-only tools, searched
-  a synthetic stored Technical Support Engineer fixture, and exercised all four
-  evidence tools successfully. This is transport validation, not a live provider call
-  or ChatGPT connection. The temporary server was stopped afterward.
-- The complete interface now has 12 tools, including the new `search_saved_jobs`;
-  the earlier live 11-tool test predates that addition.
-- CI passed on Python 3.11, 3.12 and 3.13, including the dependency audit and an
-  actual Ubuntu 24.04 installer, restricted-service HTTP and backup test. See the
-  [deployed revision's CI run](https://github.com/macrovise/career-search-mcp/actions/runs/35438699831).
+The Docker Compose configuration validated, but Docker runtime execution remains
+unverified because the local Docker daemon was unavailable. The AWS systemd deployment is
+verified. Scheduled backups remain on the AWS disk; automated off-host backup storage is
+not configured.

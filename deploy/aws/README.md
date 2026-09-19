@@ -3,7 +3,10 @@
 This directory prepares a single Ubuntu 24.04 x86_64 server. The London deployment
 passed migration, live discovery, private tunnel and reboot checks on 19 September
 2026; see [verification status](../../docs/verification.md) for the separate
-ChatGPT conversation result. Use an eligible EC2
+ChatGPT conversation result. The current deployed revision is
+`fef4d8ae2d1ace9bf45ed08e183506f1df4eb45d`; its 10-tool read-only surface and live
+provider search passed direct MCP HTTP acceptance. ChatGPT invocation of the new live
+tool remains pending Mac access. Use an eligible EC2
 `t3.small` (2 GiB RAM) while evaluating the AWS Free plan. Verify the account's
 current plan, credits, regional launch estimate and expiry before launching.
 Lightsail requires a Paid plan; do not upgrade implicitly. Credits are temporary,
@@ -53,8 +56,10 @@ The configuration files in `/etc/career-search` also remain root-owned mode 0600
 3. Start the application: `sudo systemctl start career-search.service`.
 4. Run `/opt/career-search/venv/bin/python deploy/aws/verify_readonly.py` from the
    checkout. It verifies the exact ten read-only tools and real HTTP reads without
-   contacting a job provider or printing personal records. The separate ChatGPT
-   acceptance check below exercises the live provider path.
+   contacting a job provider or printing personal records. A separate direct HTTP live
+   provider call on the current revision also passed; the acceptance evidence is in
+   [verification status](../../docs/verification.md). The ChatGPT check below remains
+   separate and is still pending for the new tool.
 5. Stop the old host's tunnel runtime before starting this server's tunnel.
    Keep only one authoritative database, watcher and tunnel connection.
 6. Start `career-tunnel.service`; verify both HTTP endpoints at
@@ -77,14 +82,16 @@ Preserve a verified local backup before terminating any instance.
 
 ## ChatGPT acceptance check
 
-The verified 19 September deployment used the earlier nine-tool interface and successfully
-called `get_profile`, `search_saved_jobs`, and the four evidence tools. That result does
-not cover the new live search. After deploying the revision with `search_live_jobs`, use a
-fresh conversation with Developer Mode available, explicitly select Career Search MCP,
-call the saved search and live search, and confirm their actual results and the new tool's
-per-source status. Also use a returned live ID with `get_job_detail` or an evidence tool.
-A conversation reporting `This conversation does not support developer MCPs` cannot
-validate the integration. Never claim success from server health alone.
+The verified 19 September ChatGPT conversation used the earlier nine-tool interface and
+successfully called `get_profile`, `search_saved_jobs`, and the four evidence tools. The
+current AWS revision has since passed direct HTTP live-search acceptance, but the new tool
+has not yet been invoked inside ChatGPT. When Mac access is available, use a fresh
+conversation with Developer Mode available, explicitly select Career Search MCP, confirm
+the refreshed 10-tool list, call the saved search and live search, and inspect the new
+tool's per-source status. Also use a returned live ID with `get_job_detail` or an evidence
+tool. A conversation reporting `This conversation does not support developer MCPs` cannot
+validate the integration. Never claim ChatGPT success from server health or direct HTTP
+checks alone.
 
 Adzuna remains disabled until official credentials are configured securely.
 Scout remains disabled until its provider accepts ChatGPT's OAuth callback and a
@@ -99,6 +106,7 @@ silently overwrite either database. Review upgrades separately; the fresh-server
 installer intentionally refuses to replace an existing deployment.
 
 CI installs the exact revision on Ubuntu 24.04 and tests actual HTTP reads and a
-backup under the service restrictions. It uses no AWS resources or tunnel key;
-AWS connectivity, secret delivery, reboot persistence and ChatGPT calls still
-require deployment acceptance testing.
+backup under the service restrictions. It uses no AWS resources or tunnel key.
+The current revision's AWS service and live-provider acceptance are recorded in
+[verification status](../../docs/verification.md); ChatGPT verification of the new
+tool is still pending, and future revisions require their own deployment acceptance.
