@@ -41,13 +41,16 @@ It runs only while this process is running; no background system service is inst
 
 ChatGPT Pro supports custom MCP apps with read/fetch permissions in Developer Mode;
 write-capable MCP access is currently limited to Business, Enterprise, and Edu. For Pro,
-run the MCP server with `CAREER_READ_ONLY=true` and keep the watcher running locally as a
-separate process. ChatGPT can then use `search_saved_jobs` to read the watcher’s saved
-results without starting a live search or changing stored data. The four evidence and
-writing-preparation tools remain available. Profile saving and lifecycle changes are not
-available through the Pro connection. This reflects current OpenAI documentation; it does
-not confirm tunnel access or a working ChatGPT connection for any particular account. See
-[the tunnel and Pro setup guide](docs/deployment.md).
+run the MCP server with `CAREER_READ_ONLY=true`. The 10-tool read-only surface includes
+`search_saved_jobs` for watcher-collected records and `search_live_jobs` for an on-demand
+query against configured, enabled providers. Live search bypasses the server's source cache
+and does not persist results; it still needs network access and provider results can be
+limited or incomplete. The four evidence and writing-preparation tools remain available.
+Profile saving and lifecycle changes are not available through the Pro connection. The
+previous AWS verification covered the nine-tool interface before live search was added;
+verify the new tool after deploying its revision. This reflects current OpenAI documentation;
+it does not confirm tunnel access or a working ChatGPT connection for any particular account.
+See [the tunnel and Pro setup guide](docs/deployment.md).
 
 No tunnel, API key, Adzuna account, subscription change, or deployment is provisioned
 automatically. Optional Adzuna credentials require registration with the

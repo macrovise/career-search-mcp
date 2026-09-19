@@ -8,6 +8,7 @@ import hashlib
 import json
 import re
 import sqlite3
+from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -63,6 +64,30 @@ def identity_keys(job: Job) -> list[str]:
         ]
         keys.append("fingerprint:" + hashlib.sha256("|".join(fields).encode()).hexdigest())
     return list(dict.fromkeys(keys))
+
+
+def find_duplicate(job: Job, lookup: Callable[[str], Job | None]) -> Job | None:
+    """Use the same conservative identity rules for saved and request-local jobs."""
+    keys = identity_keys(job)
+    if not keys:
+        raise ValueError("Job requires source identity or a valid URL")
+    matches = {}
+    for key in keys:
+        candidate = lookup(key)
+        if candidate is None:
+            continue
+        if key.startswith("fingerprint:"):
+            old_ids = {(s.source, s.source_id) for s in candidate.sources}
+            if any(
+                s.source == old_source and s.source_id != old_id
+                for s in job.sources
+                for old_source, old_id in old_ids
+            ):
+                continue
+        matches[candidate.id] = candidate
+    if len(matches) > 1:
+        raise ValueError("Ambiguous duplicate identities require review")
+    return next(iter(matches.values()), None)
 
 
 def merge_records(old: Job, new: Job) -> Job:
@@ -191,29 +216,9 @@ class Store:
             raise ValueError("Job requires source identity or a valid URL")
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
-            matches = {}
-            for key in keys:
-                row = db.execute(
-                    "SELECT j.data FROM identities i JOIN jobs j ON j.id=i.job_id WHERE i.key=?",
-                    (key,),
-                ).fetchone()
-                if row:
-                    candidate = Job.model_validate_json(row[0])
-                    if key.startswith("fingerprint:"):
-                        old_ids = {(s.source, s.source_id) for s in candidate.sources}
-                        if any(
-                            s.source == old_source and s.source_id != old_id
-                            for s in job.sources
-                            for old_source, old_id in old_ids
-                        ):
-                            continue
-                    matches[candidate.id] = candidate
-            if len(matches) > 1:
-                # Conflicting aliases need explicit review, never silently collapse
-                # records that might have different application histories.
-                raise ValueError("Ambiguous duplicate identities require review")
-            if matches:
-                result = merge_records(next(iter(matches.values())), job)
+            existing = self._find_match(db, job)
+            if existing is not None:
+                result = merge_records(existing, job)
             else:
                 now = datetime.now(UTC)
                 result = job.model_copy(
@@ -234,6 +239,22 @@ class Store:
             for key in keys:
                 db.execute("INSERT OR IGNORE INTO identities VALUES(?,?)", (key, result.id))
         return result
+
+    @staticmethod
+    def _find_match(db, job: Job) -> Job | None:
+        def lookup(key):
+            row = db.execute(
+                "SELECT j.data FROM identities i JOIN jobs j ON j.id=i.job_id WHERE i.key=?",
+                (key,),
+            ).fetchone()
+            return Job.model_validate_json(row[0]) if row else None
+
+        return find_duplicate(job, lookup)
+
+    def find_match(self, job: Job) -> Job | None:
+        """Read existing identity/lifecycle evidence without updating discovery dates."""
+        with self.connection() as db:
+            return self._find_match(db, job)
 
     def get(self, job_id: str) -> Job:
         with self.connection() as db:

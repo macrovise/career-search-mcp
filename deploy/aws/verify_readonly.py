@@ -14,6 +14,7 @@ EXPECTED_TOOLS = {
     "get_profile",
     "score_fit",
     "search_saved_jobs",
+    "search_live_jobs",
     "tailor_resume",
 }
 
@@ -22,7 +23,7 @@ async def main():
     async with Client("http://127.0.0.1:8383/mcp") as client:
         tools = await client.list_tools()
         if {tool.name for tool in tools} != EXPECTED_TOOLS:
-            raise RuntimeError("The server does not expose exactly the nine read-only tools.")
+            raise RuntimeError("The server does not expose exactly the ten read-only tools.")
         if any(not tool.annotations or not tool.annotations.readOnlyHint for tool in tools):
             raise RuntimeError("A tool is missing its read-only annotation.")
         profile = await client.call_tool("get_profile", {})

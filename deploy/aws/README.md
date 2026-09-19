@@ -52,8 +52,9 @@ The configuration files in `/etc/career-search` also remain root-owned mode 0600
    mode 0600. Compare job, profile and history counts with the source snapshot.
 3. Start the application: `sudo systemctl start career-search.service`.
 4. Run `/opt/career-search/venv/bin/python deploy/aws/verify_readonly.py` from the
-   checkout. It verifies the exact nine read-only tools and real HTTP reads without
-   printing personal records.
+   checkout. It verifies the exact ten read-only tools and real HTTP reads without
+   contacting a job provider or printing personal records. The separate ChatGPT
+   acceptance check below exercises the live provider path.
 5. Stop the old host's tunnel runtime before starting this server's tunnel.
    Keep only one authoritative database, watcher and tunnel connection.
 6. Start `career-tunnel.service`; verify both HTTP endpoints at
@@ -76,12 +77,14 @@ Preserve a verified local backup before terminating any instance.
 
 ## ChatGPT acceptance check
 
-Keep the existing Career Search app and private tunnel ID. In a fresh conversation
-with Developer Mode available, explicitly select Career Search MCP and invoke
-`get_profile`, `search_saved_jobs`, then the four evidence tools with suitable
-saved-job inputs. Confirm actual returned data, not just Connected settings.
-A conversation reporting `This conversation does not support developer MCPs`
-cannot validate the integration. Never claim success from server health alone.
+The verified 19 September deployment used the earlier nine-tool interface and successfully
+called `get_profile`, `search_saved_jobs`, and the four evidence tools. That result does
+not cover the new live search. After deploying the revision with `search_live_jobs`, use a
+fresh conversation with Developer Mode available, explicitly select Career Search MCP,
+call the saved search and live search, and confirm their actual results and the new tool's
+per-source status. Also use a returned live ID with `get_job_detail` or an evidence tool.
+A conversation reporting `This conversation does not support developer MCPs` cannot
+validate the integration. Never claim success from server health alone.
 
 Adzuna remains disabled until official credentials are configured securely.
 Scout remains disabled until its provider accepts ChatGPT's OAuth callback and a

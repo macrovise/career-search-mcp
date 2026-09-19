@@ -6,9 +6,26 @@
 and registers the MCP interface. `search_jobs` calls `CareerService.discover`, which
 queries adapters, reports provider failures, normalizes records, persists deduplicated
 jobs, and attaches deterministic fit evidence. `job_watcher` uses the same service.
-`search_saved_jobs` searches the persisted SQLite records by title, company, or description;
-it does not contact job sources or write to the database. Run the watcher separately when
-you want fresh listings.
+`search_saved_jobs` searches persisted SQLite records by title, company, or description;
+it does not contact job sources or write to the database. `search_live_jobs` calls the
+currently configured, enabled adapters at request time, bypasses the SQLite source-response
+cache, combines duplicates in memory, and does not persist results. All configured enabled
+sources are used by default; an optional `sources` filter can narrow that set, but cannot
+enable a disabled provider such as Scout or Adzuna. The watcher and `search_jobs` caching
+and persistence behavior are unchanged.
+
+Each live-search response includes provider `source_status` with `fetched_at`,
+`cached: false`, and any failures, plus `total_count`, `returned_count`, `truncated`, and
+`limit`. A request-time fetch does not guarantee a complete inventory: providers can cap,
+delay, or fail to return listings. Read-only means no persistent writes here; live search
+still contacts external services and needs network access.
+
+Live result IDs start with `live:` and remain in process memory for 15 minutes, up to 500
+listings. `get_job_detail`, `score_fit`, `tailor_resume`, and `cover_letter_brief` accept
+these IDs. When a result matches a saved job, it also returns the raw `saved_job_id`;
+`get_job_history(live_id)` can return that job's stored history. For an unmatched live job,
+it returns an empty history. A server restart, expiry, or eviction removes the temporary
+result, so run the search again to use it.
 
 ### ChatGPT Pro read-only mode
 
@@ -20,10 +37,12 @@ Secure MCP Tunnel does not change those plan permissions. See the current
 Set `CAREER_READ_ONLY=true` on the MCP server used by Pro. The server removes and rejects
 `search_jobs`, `save_profile`, and `update_status`. The read-only
 `search_saved_jobs(query, status, limit, offset)` tool searches only watcher-collected
-records and returns `jobs`, `excluded_jobs`, and pagination/coverage evidence. The watcher
-continues to perform source discovery and persistence as a separate local process; the
-ChatGPT MCP request does neither. The default `CAREER_READ_ONLY=false` preserves the
-existing interface for an authorized deployment with write access.
+records and returns `jobs`, `excluded_jobs`, and pagination/coverage evidence. The
+read-only `search_live_jobs(query, sources, limit)` tool instead retrieves current results
+from configured enabled providers without persistence. The watcher continues to perform
+source discovery and persistence as a separate local process; the ChatGPT MCP request does
+not change watcher records. The default `CAREER_READ_ONLY=false` preserves the existing
+interface for an authorized deployment with write access.
 
 The four ChatGPT reasoning tools remain available: `build_profile`, `score_fit`,
 `tailor_resume`, and `cover_letter_brief`. They prepare or retrieve evidence for ChatGPT
@@ -47,12 +66,14 @@ users become necessary: it can hold vectors alongside profiles, jobs and provena
 without Qdrant. That requires choosing an embedding model and measuring retrieval quality;
 there is deliberately no untested pretend semantic score in this version.
 
-Valkey is unnecessary: source-response caching lives in SQLite with expiration. Broad
-Remotive, Jobicy and WWR feeds share one cache across target queries for six hours;
-Himalayas and Adzuna query caches last one hour. The watcher minimum interval is six
-hours. A cache is a bounded first-page/feed snapshot, not a claim of full market coverage.
-Avoid concurrent cold-cache discovery from multiple processes: they may each fetch once.
-For a larger deployment, move leases/caching and persistent data to Postgres.
+Valkey is unnecessary: `search_jobs` and the watcher keep source-response caching in SQLite
+with expiration. Broad Remotive, Jobicy and WWR feeds share one cache across target queries
+for six hours; Himalayas and Adzuna query caches last one hour. `search_live_jobs` bypasses
+this cache and holds its results only in the bounded in-memory window described above. The
+watcher minimum interval is six hours. A cache is a bounded first-page/feed snapshot, not a
+claim of full market coverage. Avoid concurrent cold-cache discovery from multiple
+processes: they may each fetch once. For a larger deployment, move leases/caching and
+persistent data to Postgres.
 
 ## Canonical job schema
 
@@ -60,7 +81,7 @@ The authoritative validated schema is `models.Job`:
 
 | Field | Meaning |
 |---|---|
-| id | Stable canonical ID generated at first ingestion |
+| id | Stable canonical ID for a saved job; live results instead use temporary `live:` IDs |
 | title, company, location | Source-disclosed identifying text |
 | remote_scope | worldwide, uk, emea, europe, restricted, remote_unspecified, onsite, hybrid, unknown |
 | salary_min, salary_max, currency | Numeric source evidence, nullable |
@@ -125,18 +146,20 @@ work authorization begin unknown and must be supplied by the user.
 - `score_fit(job_id)`: returns matched requirements with job/résumé quotes, skills not
   evidenced, remote eligibility, salary evidence, concerns, exclusion reasons and positive
   evidence. No opaque score or external LLM call.
-- `tailor_resume(job_id)`: returns the canonical job/profile, fit evidence and output
+- `tailor_resume(job_id)`: returns the job/profile, fit evidence and output
   contract for ChatGPT to propose summary/skills/experience changes with citations.
 - `cover_letter_brief(job_id)`: returns evidence and an output contract covering opening
   angle, requirements, supporting experience, gaps and questions. ChatGPT writes the brief.
 
-`save_profile` is an explicit write; the other four tools never alter the saved résumé.
+`save_profile` is an explicit write; the four reasoning tools never alter the saved résumé.
 All are published with MCP annotations and, in OAuth mode, security scheme metadata.
+The full interface has 13 tools, while `CAREER_READ_ONLY=true` exposes 10 read-only tools.
 `search_jobs` is accurately marked as a write because discoveries are persisted.
 `search_saved_jobs` is read-only: query matching is limited to stored title/company/
 description text, applies optional status and pagination, and returns an explicit
 "saved listings only" coverage statement. It does not refresh listings or update stored
-fit evidence.
+fit evidence. `search_live_jobs` is also read-only, but it contacts enabled providers and
+returns temporary live results without writing to the database or source cache.
 
 ## Lifecycle
 
@@ -153,9 +176,10 @@ A missing listing is not proof that a role has closed.
 ## Response sizes
 
 Search results contain a 1,500-character description preview and compact provenance links.
-`description_truncated` makes that limit visible. `get_job_detail` returns the complete
-stored description and source snapshots. Evidence tools return source references rather
-than duplicating every raw snapshot in each fit assessment.
+`description_truncated` makes that limit visible. For a saved job, `get_job_detail` returns
+the complete stored description and source snapshots; for a live ID, it returns the
+temporary result while that result remains in memory. Evidence tools return source
+references rather than duplicating every raw snapshot in each fit assessment.
 
 ## Scout integration boundary
 
