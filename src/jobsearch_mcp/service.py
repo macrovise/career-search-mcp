@@ -7,11 +7,12 @@ from datetime import UTC, datetime
 
 from .models import Job
 from .reasoning import score_fit
-from .sources import public
+from .sources import public, scout
 from .store import Store
 
 ADAPTERS = {
     "himalayas": public.himalayas,
+    "scout": scout.search,
     "adzuna": public.adzuna,
     "remotive": public.remotive,
     "jobicy": public.jobicy,

@@ -23,6 +23,7 @@ dependencies = [
     "httpx>=0.28,<1",
     "feedparser>=6,<7",
     "python-dotenv>=1,<2",
+    "jsonschema>=4.26,<5",
 ]
 
 [project.optional-dependencies]

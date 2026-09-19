@@ -9,6 +9,15 @@ from ..http import fetch
 from .normalize import clean, employment, make_job, period, restrictions, scope
 
 
+def response_rows(data, key: str) -> list[dict]:
+    """A provider error payload must not masquerade as a successful empty search."""
+    if not isinstance(data, dict) or not isinstance(data.get(key), list):
+        raise ValueError("Source response is missing its expected results array")
+    if any(not isinstance(row, dict) for row in data[key]):
+        raise ValueError("Source results must be objects")
+    return data[key]
+
+
 async def himalayas(query: str):
     data = json.loads(
         await fetch(
@@ -17,7 +26,7 @@ async def himalayas(query: str):
         )
     )
     jobs = []
-    for row in data.get("jobs", []):
+    for row in response_rows(data, "jobs"):
         countries = restrictions(row.get("locationRestrictions"))
         location = ", ".join(countries) or "Worldwide"
         link = row.get("guid", "")
@@ -66,7 +75,7 @@ async def adzuna(query: str):
         )
     )
     jobs = []
-    for row in data.get("results", []):
+    for row in response_rows(data, "results"):
         location = row.get("location", {}).get("display_name", "")
         description = row.get("description", "")
         jobs.append(
@@ -116,7 +125,7 @@ async def remotive(query: str):
                 skills=r.get("tags", []),
             ),
         )
-        for r in data.get("jobs", [])
+        for r in response_rows(data, "jobs")
     ]
 
 
@@ -150,7 +159,7 @@ async def jobicy(query: str):
                 description=r.get("jobDescription") or r.get("jobExcerpt", ""),
             ),
         )
-        for r in data.get("jobs", [])
+        for r in response_rows(data, "jobs")
     ]
 
 

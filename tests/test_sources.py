@@ -338,3 +338,23 @@ def test_normalization_preserves_remote_and_value_uncertainty():
     assert date_value("not a date") is None
     assert date_value("2026-09-18T14:30:00Z") == datetime(2026, 9, 18, 14, 30, tzinfo=UTC)
     assert clean(" <p>Support &amp; APIs</p> ") == "Support & APIs"
+
+
+async def test_jobicy_broad_feed_omits_empty_tag(monkeypatch):
+    from jobsearch_mcp.sources import public
+
+    async def fake_fetch(url, params=None):
+        assert params == {"count": 50}
+        return b'{"jobs": []}'
+
+    monkeypatch.setattr(public, "fetch", fake_fetch)
+    assert await public.jobicy("") == []
+
+
+async def test_provider_error_payload_is_not_empty_success(monkeypatch):
+    async def fake_fetch(url, params=None):
+        return b'{"error": "temporary provider outage"}'
+
+    monkeypatch.setattr(public, "fetch", fake_fetch)
+    with pytest.raises(ValueError, match="results array"):
+        await public.himalayas("Support Engineer")

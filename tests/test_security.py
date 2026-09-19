@@ -63,3 +63,27 @@ def test_local_auth_cannot_bind_publicly(monkeypatch):
     monkeypatch.setenv("MCP_HOST", "0.0.0.0")
     with pytest.raises(ValueError):
         auth_provider()
+
+
+async def test_every_same_origin_redirect_revalidates_dns(respx_mock, monkeypatch):
+    calls = []
+
+    def resolve(host):
+        calls.append(host)
+        return [ipaddress.ip_address("8.8.8.8" if len(calls) == 1 else "10.0.0.1")]
+
+    monkeypatch.setattr(security, "_resolve_host", resolve)
+    respx_mock.get("https://example.com/start").respond(302, headers={"Location": "/next"})
+    with pytest.raises(ValueError):
+        await fetch("https://example.com/start")
+    assert len(calls) == 2
+
+
+async def test_response_size_limit(respx_mock, monkeypatch):
+    import jobsearch_mcp.http as safe_http
+
+    monkeypatch.setattr(security, "_resolve_host", lambda _: [ipaddress.ip_address("8.8.8.8")])
+    monkeypatch.setattr(safe_http, "MAX_BYTES", 10)
+    respx_mock.get("https://example.com/large").respond(200, content=b"a" * 11)
+    with pytest.raises(ValueError, match="size limit"):
+        await fetch("https://example.com/large")
