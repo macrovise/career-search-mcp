@@ -101,3 +101,19 @@ See the task's final report for the final test count, commit hashes and live HTT
   every `search_jobs` invocation was blocked by its runtime. The answer stream stalled
   before rendering the complete error; do not infer an HTTP status or provider cause.
   No successful ChatGPT search is verified.
+
+## Approved tunnel creation
+
+- Following explicit user approval, created a separate Career Search MCP tunnel in the
+  Personal organization and existing ChatGPT workspace. Re-loaded the Platform list and
+  verified the new record; the existing OpenDesign tunnel was unchanged.
+- Prepared a private local tunnel profile using a file reference for the runtime key.
+  The key file is empty, with private filesystem permissions, pending user credential
+  creation/entry. No token is present in the repository or committed documentation.
+- AWS was assessed as a future hosting option; no AWS resources were created.
+- Re-ran the watcher for all six target roles after preparing the local deployment.
+  All four enabled sources returned successful outcomes (with shared feed caches). The
+  database contains 106 canonical records. No applications or messages were sent.
+- Verified the running loopback MCP exposes nine read-only tools. Saved-job search and
+  fit/resume/cover-letter evidence tools succeeded on real stored source records.
+  This remains local verification; no Career Search ChatGPT call has succeeded yet.
