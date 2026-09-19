@@ -6,8 +6,8 @@ ChatGPT needs a route to the running MCP server. That can be a server on a hosti
 provider, or your Mac through OpenAI's private Secure MCP Tunnel if available for
 your account. A local command alone is not a ChatGPT connection. With the Mac option,
 it must stay powered on, awake and connected for searches and the watcher to run.
-No hosting subscription, tunnel, identity tenant, paid resource or persistent system
-service has been provisioned by this repository.
+This repository provisions no hosting subscription, tunnel, identity tenant, paid resource
+or persistent system service.
 
 Start with local validation (README). For production, the supported public-server
 configuration uses a persistent volume, HTTPS reverse proxy, and an external OAuth
@@ -73,32 +73,38 @@ ChatGPT reads saved results with `search_saved_jobs`. The four evidence and writ
 tools remain available, while `search_jobs`, `save_profile`, and `update_status` are hidden
 and rejected. See [OpenAI's plan guidance](https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt).
 
-This is a supported setup path from current public documentation, not a verified connection
-for Trevor's account. No tunnel or runtime key has been provisioned here, and this account's
-tunnel self-service entitlement has not been checked. OpenAI's guide says personal accounts
-use their personal Platform organization, but tunnel creation is available only when the
-account rollout and permissions allow it. Check the
-[Platform Tunnels page](https://platform.openai.com/settings/organization/tunnels); if it
-shows an access/permission error, the relevant Platform owner or RBAC administrator must
-grant access. Tunnel permissions and ChatGPT Developer Mode are separate.
+The approved Career Search tunnel has been created for the intended ChatGPT workspace, and
+Platform tunnel access is verified. The Restricted runtime key is saved locally with mode
+`0600`; its path and value are deliberately omitted here. The official Homebrew
+`tunnel-client` version 0.0.14 is installed. `tunnel-client doctor --profile career-search
+--explain` passed, and the managed runtime reports `ready`, `healthy`, and
+`process_running`. The Career Search MCP custom app shows **Connected** in ChatGPT Settings
+with nine read-only tools. Attempts to call `get_profile` and `search_saved_jobs` in the
+original conversation were blocked before returning data. Evidence-tool checks also remain
+unverified. No successful ChatGPT tool call is verified. Tunnel permissions and ChatGPT
+Developer Mode are separate.
+
+The local MCP server is running read-only at `127.0.0.1:8383` with nine tools. The watcher
+completed a one-time run and stored 106 canonical listings; continuous watching is not
+running. The server and watcher are separate processes with no OS supervision. The managed
+tunnel runtime does not supervise them.
 
 ### Tunnel and runtime prerequisites
 
-- Create or select a tunnel in Platform Tunnels. Associate it with the intended ChatGPT
-  workspace/account so it appears in that app's Tunnel picker.
+- Create or select a tunnel in Platform Tunnels and associate it with the intended ChatGPT
+  workspace so it appears in that app's Tunnel picker. This Mac already has an approved
+  Career Search tunnel in the target workspace.
 - The runtime principal and the person attaching the ChatGPT app need Tunnels Read + Use.
   Creating or editing a tunnel needs Tunnels Read + Manage.
-- Create a **Restricted** runtime key with Tunnels Read + Use in Platform Runtime API keys.
-  Put it in `CONTROL_PLANE_API_KEY`. This key authenticates the tunnel daemon; it is not a
-  ChatGPT credential and does not make model API calls.
-- The separate `OPENAI_ADMIN_KEY` is only needed for CLI tunnel create/list/update/delete
-  and must not be used by the long-running daemon. Creating admin keys is separately
-  permission-controlled.
+- Use a **Restricted** runtime key with Tunnels Read + Use. It authenticates the tunnel
+  runtime; it is not a ChatGPT credential and does not make model API calls. Reference it
+  as `file:/path/to/restricted-runtime-key`; never put its value in shell history or the
+  repository.
 - The machine running `tunnel-client` needs outbound HTTPS to `api.openai.com:443` and
   local reachability to the MCP service. The MCP server does not need an inbound public port.
 
 On macOS, OpenAI documents Homebrew as the supported installation route; direct release ZIPs
-are not notarized. These are reference commands and have not been run here:
+are not notarized. The official Homebrew client is installed here at version 0.0.14:
 
 ```sh
 brew install openai/tools/tunnel-client
@@ -119,41 +125,31 @@ server and watcher as separate processes using the same `CAREER_DB_PATH`:
 .venv/bin/career-watcher
 ```
 
-Then provide `CONTROL_PLANE_API_KEY` and `CONTROL_PLANE_TUNNEL_ID` to the client through a
-secure environment or secret manager. Do not paste keys into command history or profiles.
-The `sample_mcp_remote_no_auth` profile is only for this already-authorized Secure MCP
-Tunnel path to the loopback-only server; it is not a general public-access configuration.
-Run the documented HTTP profile flow:
+For a long-lived local runtime, use the managed `runtimes connect` command instead of
+`nohup`, `disown`, or manually running a profile. Attach to the existing tunnel with its ID
+and the target workspace ID; use `--workspace-id` without `--organization-id`. Supply the
+Restricted runtime key as a file reference, never as a literal key value:
 
 ```sh
-tunnel-client init \
-  --sample sample_mcp_remote_no_auth \
+tunnel-client runtimes connect \
+  --alias career-search \
   --profile career-search \
-  --tunnel-id "$CONTROL_PLANE_TUNNEL_ID" \
+  --profile-dir "<private profile directory>" \
+  --tunnel-id "<existing Career Search tunnel ID>" \
+  --workspace-id "<target ChatGPT workspace ID>" \
+  --runtime-api-key "file:/path/to/restricted-runtime-key" \
   --mcp-server-url http://127.0.0.1:8383/mcp
-tunnel-client doctor --profile career-search --explain
-tunnel-client run --profile career-search
+tunnel-client doctor --profile career-search --profile-dir "<private profile directory>" --explain
+tunnel-client runtimes status career-search --json
 ```
 
-If creating the tunnel through the CLI rather than the Platform UI, a separate admin key
-and at least one valid scope ID are required. Load `OPENAI_ADMIN_KEY` from a secure
-environment or secret manager; do not paste it into shell history. The documented syntax is:
-
-```sh
-tunnel-client admin tunnels create \
-  --name "Career Search MCP" \
-  --description "Private Career Search MCP" \
-  --organization-id "<Platform organization id>" \
-  --workspace-id "<ChatGPT workspace id>"
-```
-
-Wait 25–30 seconds after tunnel creation before expecting it to be ready. In ChatGPT, enable
-Developer Mode, create a custom app from Settings → Apps, choose Tunnel as the connection,
-then select or paste the tunnel ID. Keep `tunnel-client run` healthy while discovering and
-calling tools. Verify the tunnel runtime is ready, then call `search_saved_jobs` and confirm
-its response says saved listings only. The same local SQLite path must be used by the server
-and watcher. No Pro plan upgrade, purchase, account change, tunnel creation, or key creation
-is performed automatically by these instructions.
+For a new setup, enable Developer Mode, create a custom app from Settings → Apps, choose
+Tunnel as the connection, and select or paste the tunnel ID. Here, the Career Search MCP
+app already shows Connected. A fresh Developer Mode conversation is pending approval; once
+available, explicitly select the app and verify that `search_saved_jobs` returns saved
+listings-only coverage. The same local SQLite path must be used by the server and watcher.
+No Pro plan upgrade, purchase, account change, tunnel creation, or key creation is performed
+automatically by these instructions.
 
 See OpenAI's [Secure MCP Tunnel guide](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels),
 [onboarding guide](https://github.com/openai/tunnel-client/blob/master/docs/onboarding.md),
