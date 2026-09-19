@@ -117,7 +117,7 @@ def create_server(store: Store | None = None, *, local_test: bool = False):
         offset: Annotated[int, Field(ge=0)] = 0,
     ) -> list[dict]:
         """Read persisted jobs with pagination; status never changes from reading."""
-        return [j.model_dump(mode="json") for j in store.list(status, limit, offset)]
+        return [j.model_dump(mode="json") for j in store.list_jobs(status, limit, offset)]
 
     @mcp.tool(annotations=READ, meta=metadata)
     def get_job_history(job_id: str) -> list[dict]:

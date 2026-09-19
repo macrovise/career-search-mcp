@@ -242,7 +242,9 @@ class Store:
             raise ValueError("Unknown job ID")
         return Job.model_validate_json(row[0])
 
-    def list(self, status: Status | None = None, limit: int = 100, offset: int = 0) -> list[Job]:
+    def list_jobs(
+        self, status: Status | None = None, limit: int = 100, offset: int = 0
+    ) -> list[Job]:
         with self.connection() as db:
             rows = db.execute(
                 """

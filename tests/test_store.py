@@ -37,14 +37,14 @@ def test_cross_source_dedup_provenance_and_preserved_lifecycle(store):
     assert first.id == second.id
     assert second.status == Status.APPLIED
     assert {s.source for s in second.sources} == {"himalayas", "scout"}
-    assert len(store.list()) == 1
+    assert len(store.list_jobs()) == 1
 
 
 def test_concurrent_ingestion_is_atomic(store):
     with ThreadPoolExecutor(4) as pool:
         ids = list(pool.map(lambda _: store.upsert(job()).id, range(20)))
     assert len(set(ids)) == 1
-    assert len(store.list()) == 1
+    assert len(store.list_jobs()) == 1
 
 
 def test_distinct_requisitions_same_source_never_merge_by_title(store):
@@ -108,8 +108,8 @@ def test_profile_requires_evidence_and_persists(store):
 
 def test_pagination_status_and_identity_url(store):
     store.upsert(job())
-    assert store.list(Status.APPLIED) == []
-    assert store.list(offset=1) == []
+    assert store.list_jobs(Status.APPLIED) == []
+    assert store.list_jobs(offset=1) == []
     assert (
         canonical_url("https://EXAMPLE.com/jobs/1?utm_source=x&gh_jid=23")
         == "https://example.com/jobs/1?gh_jid=23"
