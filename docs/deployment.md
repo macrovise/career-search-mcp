@@ -68,26 +68,27 @@ still require a real deployment test.
 OpenAI's current Help Center says ChatGPT Pro can connect custom MCP apps with read/fetch
 permissions in Developer Mode. Write-capable MCP access is currently limited to Business,
 Enterprise, and Edu. Secure MCP Tunnel does not change those plan permissions. This design
-therefore uses `CAREER_READ_ONLY=true` for Pro and uses the local watcher to refresh jobs;
+therefore uses `CAREER_READ_ONLY=true` for Pro and a background watcher to refresh jobs;
 ChatGPT reads saved results with `search_saved_jobs`. The four evidence and writing-preparation
 tools remain available, while `search_jobs`, `save_profile`, and `update_status` are hidden
 and rejected. See [OpenAI's plan guidance](https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt).
 
-The approved Career Search tunnel has been created for the intended ChatGPT workspace, and
-Platform tunnel access is verified. The Restricted runtime key is saved locally with mode
-`0600`; its path and value are deliberately omitted here. The official Homebrew
-`tunnel-client` version 0.0.14 is installed. `tunnel-client doctor --profile career-search
---explain` passed, and the managed runtime reports `ready`, `healthy`, and
-`process_running`. The Career Search MCP custom app shows **Connected** in ChatGPT Settings
-with nine read-only tools. Attempts to call `get_profile` and `search_saved_jobs` in the
-original conversation were blocked before returning data. Evidence-tool checks also remain
-unverified. No successful ChatGPT tool call is verified. Tunnel permissions and ChatGPT
-Developer Mode are separate.
+The existing Career Search tunnel and custom app are now backed by the AWS London
+server. The official tunnel client runs as a restricted systemd service, with its
+runtime key held in a root-owned file and delivered through systemd credentials.
+The MCP service listens at `127.0.0.1:8383`; no inbound public application port is open.
+The Mac tunnel runtime is stopped.
 
-The local MCP server is running read-only at `127.0.0.1:8383` with nine tools. The watcher
-completed a one-time run and stored 106 canonical listings; continuous watching is not
-running. The server and watcher are separate processes with no OS supervision. The managed
-tunnel runtime does not supervise them.
+The app lists nine read-only tools. A fresh ChatGPT Chat conversation successfully
+called `get_profile`, `search_saved_jobs` and all four evidence tools through AWS.
+The original conversation rejected developer MCPs; use a fresh conversation if that
+error appears. The watcher now runs every six hours and daily database backups are
+enabled. A reboot preserved 107 saved jobs and restored all services and timers.
+See [verification status](verification.md) for the evidence and remaining limits.
+
+Use the [AWS deployment guide](../deploy/aws/README.md) for the active hosted setup.
+The following Mac instructions describe a local alternative; switching back requires
+the documented cutover so only one tunnel and database remain authoritative.
 
 ### Tunnel and runtime prerequisites
 
@@ -145,9 +146,9 @@ tunnel-client runtimes status career-search --json
 
 For a new setup, enable Developer Mode, create a custom app from Settings → Apps, choose
 Tunnel as the connection, and select or paste the tunnel ID. Here, the Career Search MCP
-app already shows Connected. A fresh Developer Mode conversation is pending approval; once
-available, explicitly select the app and verify that `search_saved_jobs` returns saved
-listings-only coverage. The same local SQLite path must be used by the server and watcher.
+app is connected and verified. Open a fresh Chat conversation, choose Career Search MCP
+from Add files and more, and ask it to search saved support-engineering jobs.
+`search_saved_jobs` returns saved-listings-only coverage; the watcher refreshes sources. The same local SQLite path must be used by the server and watcher.
 No Pro plan upgrade, purchase, account change, tunnel creation, or key creation is performed
 automatically by these instructions.
 
