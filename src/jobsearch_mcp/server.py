@@ -26,6 +26,9 @@ def create_server(store: Store | None = None, *, local_test: bool = False):
     auth = None if local_test else auth_provider()
     store = store or Store(os.getenv("CAREER_DB_PATH", "data/career.sqlite3"))
     service = CareerService(store)
+    read_only_setting = os.getenv("CAREER_READ_ONLY", "false").strip().lower()
+    if read_only_setting not in {"true", "false"}:
+        raise ValueError("CAREER_READ_ONLY must be true or false")
     metadata = (
         {}
         if local_test or os.getenv("CAREER_AUTH_MODE") == "local"
@@ -50,6 +53,39 @@ def create_server(store: Store | None = None, *, local_test: bool = False):
         Return explainable evidence and source failures.
         """
         return await service.discover(query, sources)
+
+    @mcp.tool(annotations=READ, meta=metadata)
+    def search_saved_jobs(
+        query: Annotated[str, Field(min_length=1, max_length=200)],
+        status: Status | None = None,
+        limit: Annotated[int, Field(ge=1, le=500)] = 50,
+        offset: Annotated[int, Field(ge=0)] = 0,
+    ) -> dict:
+        """Search watcher-collected jobs without network access or database changes.
+
+        Matches all query words in title/company/description. Pagination applies before
+        dividing jobs into reviewable and excluded results. Run the watcher for fresh data.
+        """
+        profile = store.get_profile()
+        jobs, excluded = [], []
+        for job in store.search_jobs(query, status, limit, offset):
+            job.match_evidence = prepare_fit(job, profile)
+            job.eligibility = job.match_evidence["location_eligibility"]
+            item = job.model_dump(mode="json")
+            item["description"] = job.description[:1500]
+            item["description_truncated"] = len(job.description) > 1500
+            item["sources"] = [s.model_dump(mode="json", exclude={"fields"}) for s in job.sources]
+            (excluded if job.match_evidence["exclusions"] else jobs).append(item)
+        return {
+            "jobs": jobs,
+            "excluded_jobs": excluded,
+            "limit": limit,
+            "offset": offset,
+            "returned_count": len(jobs) + len(excluded),
+            "coverage": "Saved listings only; inspect last_seen and posted_at. No live search ran.",
+            "persisted": False,
+            "application_submitted": False,
+        }
 
     @mcp.tool(annotations=READ, meta=metadata)
     def get_job_detail(job_id: str) -> dict:
@@ -124,6 +160,11 @@ def create_server(store: Store | None = None, *, local_test: bool = False):
         """Read the audit trail of lifecycle changes."""
         return store.history(job_id)
 
+    if read_only_setting == "true":
+        # Remove the actual handlers, not just their display metadata. The watcher
+        # continues discovery independently; ChatGPT cannot invoke these writes.
+        for name in ("search_jobs", "save_profile", "update_status"):
+            mcp.local_provider.remove_tool(name)
     return mcp
 
 

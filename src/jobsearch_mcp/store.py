@@ -258,6 +258,29 @@ class Store:
             ).fetchall()
         return [Job.model_validate_json(row[0]) for row in rows]
 
+    def search_jobs(
+        self, query: str, status: Status | None = None, limit: int = 50, offset: int = 0
+    ) -> list[Job]:
+        """Read saved jobs using literal, case-insensitive words before pagination."""
+        words = query.strip().lower().split()
+        if not words or len(query) > 200:
+            raise ValueError("Query must be 1-200 characters")
+        # Bound parameters make quotes and SQL wildcard characters ordinary text.
+        text = (
+            "lower(json_extract(data, '$.title') || ' ' || "
+            "json_extract(data, '$.company') || ' ' || json_extract(data, '$.description'))"
+        )
+        conditions = " AND ".join(f"instr({text}, ?) > 0" for _ in words)
+        with self.connection() as db:
+            rows = db.execute(
+                "SELECT data FROM jobs WHERE "
+                + conditions
+                + " AND (? IS NULL OR json_extract(data, '$.status') = ?)"
+                + " ORDER BY json_extract(data, '$.last_seen') DESC, id LIMIT ? OFFSET ?",
+                (*words, status, status, max(1, min(limit, 500)), max(0, offset)),
+            ).fetchall()
+        return [Job.model_validate_json(row[0]) for row in rows]
+
     def update_status(
         self, job_id: str, status: Status, reason: str, follow_up_at: datetime | None = None
     ) -> Job:

@@ -120,3 +120,19 @@ def test_naive_followup_rejected(store):
     a = store.upsert(job())
     with pytest.raises(ValueError):
         store.update_status(a.id, Status.APPLIED, "test", datetime(2026, 9, 19))
+
+
+def test_saved_search_filters_before_pagination_and_treats_sql_as_text(store):
+    first = store.upsert(job(application_url=""))
+    second = store.upsert(job(source_id="b", application_url=""))
+    store.upsert(
+        job(source_id="c", title="Designer", description="Visual design", application_url="")
+    )
+    store.update_status(first.id, Status.INTERESTING, "selected")
+    matches = store.search_jobs("SUPPORT api", limit=1)
+    assert len(matches) == 1
+    next_page = store.search_jobs("support API", limit=1, offset=1)
+    assert {matches[0].id, next_page[0].id} == {first.id, second.id}
+    assert store.search_jobs("support", Status.INTERESTING)[0].id == first.id
+    assert store.search_jobs("%") == []
+    assert store.search_jobs("' OR 1=1 --") == []
