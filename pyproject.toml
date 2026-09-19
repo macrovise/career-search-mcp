@@ -3,8 +3,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "jobsearch-mcp"
-version = "2.3.0"
+name = "career-search-mcp"
+version = "3.0.0"
 description = "Multi-source job search MCP server — aggregation, enrichment, fit scoring, and resume tailoring"
 readme = "README.md"
 license = { text = "MIT" }
@@ -19,24 +19,10 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    # Upper bound is load-bearing: the repo previously pinned only `fastmcp>=2.0.0`
-    # and resolved to 3.x by luck. Do not drop the `<4` ceiling without testing.
-    "fastmcp>=3.0,<4",
-    "httpx>=0.27.0",
-    "asyncpg>=0.29.0",
-    "qdrant-client>=1.9.0",
-    "feedparser>=6.0.0",
-    "python-dotenv>=1.0.0",
-    # `<1` is load-bearing for the test suite, not a caution pin. anthropic 1.x
-    # moved its HTTP stack from httpx to httpx2; respx patches httpx, so it
-    # cannot intercept an httpx2 transport and every mocked Claude call in
-    # tests/ silently escapes to the real API instead of failing as an
-    # unmatched mock. 0.x is also what the deployed container runs (0.120.2).
-    # Raising this ceiling means first replacing respx for these tests —
-    # vikunja#651.
-    "anthropic>=0.40.0,<1",
-    "python-jobspy>=1.1.75",
-    "redis>=5.0.0",
+    "fastmcp>=3.4.7,<4",
+    "httpx>=0.28,<1",
+    "feedparser>=6,<7",
+    "python-dotenv>=1,<2",
 ]
 
 [project.optional-dependencies]
@@ -48,12 +34,13 @@ dev = [
 ]
 
 [project.scripts]
-jobsearch-mcp = "jobsearch_mcp.server:main"
+career-search-mcp = "jobsearch_mcp.server:main"
+career-watcher = "jobsearch_mcp.job_watcher:main"
 
 [project.urls]
-Homepage = "https://github.com/TadMSTR/jobsearch-mcp"
-Repository = "https://github.com/TadMSTR/jobsearch-mcp"
-Changelog = "https://github.com/TadMSTR/jobsearch-mcp/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/macrovise/career-search-mcp"
+Repository = "https://github.com/macrovise/career-search-mcp"
+Changelog = "https://github.com/macrovise/career-search-mcp/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/jobsearch_mcp"]
@@ -70,10 +57,3 @@ line-length = 100
 # Explicit fleet-standard rule set (matches doc-cache-mcp / task-queue-mcp / vikunja-mcp).
 # Pinned so ruff's expanding default select can't leak new rules in on upgrade.
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
-
-[tool.ruff.lint.per-file-ignores]
-# scorer.py's long lines are all inside Claude prompt templates. The exact prompt
-# text is measured (token counts drive the cost model) — reflowing a schema line
-# would change what is sent to the API, so E501 is waived for this file only.
-# This is not a licence for long *code* lines here; keep code within 100 cols.
-"src/jobsearch_mcp/scorer.py" = ["E501"]

@@ -12,3 +12,8 @@ dist/
 *.egg-info/
 core.*
 *.core
+data/
+*.sqlite3*
+*.db
+*.db-wal
+*.db-shm

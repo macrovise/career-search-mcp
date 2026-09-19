@@ -1,0 +1,362 @@
+"""Single-user persistence with atomic deduplication and auditable state changes.
+
+SQLite WAL supports the MCP process and one watcher on the same local volume.
+Every mutation holds a write transaction; no read/modify/write race is exposed.
+"""
+
+import hashlib
+import json
+import re
+import sqlite3
+from contextlib import contextmanager
+from datetime import UTC, datetime
+from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+from .models import Job, Profile, Status
+
+SOURCE_PRIORITY = {
+    "himalayas": 0,
+    "scout": 1,
+    "adzuna": 2,
+    "jobicy": 3,
+    "remotive": 4,
+    "weworkremotely": 5,
+}
+TRACKING_KEYS = {"ref", "source", "referrer", "trk", "trackingId"}
+
+
+def canonical_url(url: str) -> str:
+    p = urlsplit(url.strip())
+    if p.scheme not in {"https", "http"} or not p.hostname:
+        return ""
+    query = [
+        (k, v)
+        for k, v in parse_qsl(p.query)
+        if not k.lower().startswith("utm_") and k not in TRACKING_KEYS
+    ]
+    return urlunsplit(
+        (p.scheme.lower(), p.netloc.lower(), p.path.rstrip("/"), urlencode(sorted(query)), "")
+    )
+
+
+def normalized(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", text.casefold())).strip()
+
+
+def identity_keys(job: Job) -> list[str]:
+    keys = ["source:" + s.source + ":" + s.source_id for s in job.sources if s.source_id]
+    keys += [
+        "url:" + value
+        for url in [job.source_url, job.application_url]
+        if (value := canonical_url(url))
+    ]
+    # Only exact, contextual fallback matches. Distinct requisitions in one source
+    # are protected below; vague title/company fuzzy matching is deliberately absent.
+    if job.company and job.location and job.posted_at:
+        fields = [
+            normalized(job.company),
+            normalized(job.title),
+            normalized(job.location),
+            job.employment_type,
+            job.posted_at.date().isoformat(),
+        ]
+        keys.append("fingerprint:" + hashlib.sha256("|".join(fields).encode()).hexdigest())
+    return list(dict.fromkeys(keys))
+
+
+def merge_records(old: Job, new: Job) -> Job:
+    evidence = {(s.source, s.source_id): s for s in old.sources}
+    for source in new.sources:
+        evidence[(source.source, source.source_id)] = source
+    ranked = sorted(
+        evidence.values(),
+        key=lambda s: (SOURCE_PRIORITY.get(s.source, 99), -s.fetched_at.timestamp()),
+    )
+    data = old.model_dump()
+    # Rebuild selected fields from provenance, rather than depending on arrival order.
+    fields = [
+        "title",
+        "company",
+        "location",
+        "remote_scope",
+        "salary_min",
+        "salary_max",
+        "currency",
+        "salary_period",
+        "salary_is_predicted",
+        "salary_text",
+        "employment_type",
+        "posted_at",
+        "source_url",
+        "application_url",
+        "description",
+        "skills",
+        "country_restrictions",
+    ]
+    conflicts = []
+    for field in fields:
+        values = [
+            s.fields[field] for s in ranked if s.fields.get(field) not in (None, "", [], "unknown")
+        ]
+        if values:
+            data[field] = values[0]
+            distinct = {json.dumps(v, sort_keys=True, default=str) for v in values}
+            if len(distinct) > 1 and field in {
+                "location",
+                "salary_min",
+                "salary_max",
+                "currency",
+                "remote_scope",
+                "employment_type",
+                "country_restrictions",
+            }:
+                conflicts.append({"field": field, "values": values})
+    # Salary is a single unit of evidence; never combine one source's amount with
+    # another source's currency, period or disclosure status.
+    salary_source = next(
+        (
+            s
+            for s in ranked
+            if s.fields.get("salary_min") is not None or s.fields.get("salary_max") is not None
+        ),
+        None,
+    )
+    if salary_source:
+        for field in [
+            "salary_min",
+            "salary_max",
+            "currency",
+            "salary_period",
+            "salary_is_predicted",
+            "salary_text",
+        ]:
+            data[field] = salary_source.fields.get(
+                field, False if field == "salary_is_predicted" else None
+            )
+        data["salary_text"] = data["salary_text"] or ""
+    data.update(sources=ranked, conflicts=conflicts, last_seen=datetime.now(UTC))
+    return Job.model_validate(data)
+
+
+class Store:
+    def __init__(self, path: str):
+        self.path = path
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        with self.connection() as db:
+            db.execute("PRAGMA journal_mode=WAL")
+            db.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS jobs (
+                    id TEXT PRIMARY KEY,
+                    data TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS identities (
+                    key TEXT PRIMARY KEY,
+                    job_id TEXT NOT NULL REFERENCES jobs(id)
+                );
+                CREATE TABLE IF NOT EXISTS profile (
+                    id INTEGER PRIMARY KEY CHECK(id=1),
+                    data TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS events (
+                    id INTEGER PRIMARY KEY,
+                    job_id TEXT NOT NULL,
+                    at TEXT NOT NULL,
+                    old_status TEXT,
+                    new_status TEXT NOT NULL,
+                    reason TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS source_cache (
+                    key TEXT PRIMARY KEY,
+                    expires REAL NOT NULL,
+                    data TEXT NOT NULL
+                );
+                """
+            )
+
+    @contextmanager
+    def connection(self):
+        db = sqlite3.connect(self.path, timeout=30)
+        db.execute("PRAGMA foreign_keys=ON")
+        try:
+            with db:
+                yield db
+        finally:
+            db.close()
+
+    def upsert(self, job: Job) -> Job:
+        keys = identity_keys(job)
+        if not keys:
+            raise ValueError("Job requires source identity or a valid URL")
+        with self.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            matches = {}
+            for key in keys:
+                row = db.execute(
+                    "SELECT j.data FROM identities i JOIN jobs j ON j.id=i.job_id WHERE i.key=?",
+                    (key,),
+                ).fetchone()
+                if row:
+                    candidate = Job.model_validate_json(row[0])
+                    if key.startswith("fingerprint:"):
+                        old_ids = {(s.source, s.source_id) for s in candidate.sources}
+                        if any(
+                            s.source == old_source and s.source_id != old_id
+                            for s in job.sources
+                            for old_source, old_id in old_ids
+                        ):
+                            continue
+                    matches[candidate.id] = candidate
+            if len(matches) > 1:
+                # Conflicting aliases need explicit review, never silently collapse
+                # records that might have different application histories.
+                raise ValueError("Ambiguous duplicate identities require review")
+            if matches:
+                result = merge_records(next(iter(matches.values())), job)
+            else:
+                now = datetime.now(UTC)
+                result = job.model_copy(
+                    update={
+                        "id": hashlib.sha256(keys[0].encode()).hexdigest()[:24],
+                        "first_seen": now,
+                        "last_seen": now,
+                    }
+                )
+                db.execute(
+                    "INSERT INTO events(job_id,at,new_status,reason) VALUES(?,?,?,?)",
+                    (result.id, now.isoformat(), result.status.value, "discovered"),
+                )
+            db.execute(
+                "INSERT INTO jobs VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data",
+                (result.id, result.model_dump_json()),
+            )
+            for key in keys:
+                db.execute("INSERT OR IGNORE INTO identities VALUES(?,?)", (key, result.id))
+        return result
+
+    def get(self, job_id: str) -> Job:
+        with self.connection() as db:
+            row = db.execute("SELECT data FROM jobs WHERE id=?", (job_id,)).fetchone()
+        if not row:
+            raise ValueError("Unknown job ID")
+        return Job.model_validate_json(row[0])
+
+    def list(self, status: Status | None = None, limit: int = 100, offset: int = 0) -> list[Job]:
+        with self.connection() as db:
+            rows = db.execute(
+                """
+                SELECT data
+                FROM jobs
+                WHERE (? IS NULL OR json_extract(data, '$.status') = ?)
+                ORDER BY json_extract(data, '$.last_seen') DESC
+                LIMIT ? OFFSET ?
+                """,
+                (status, status, max(1, min(limit, 500)), max(0, offset)),
+            ).fetchall()
+        return [Job.model_validate_json(row[0]) for row in rows]
+
+    def update_status(
+        self, job_id: str, status: Status, reason: str, follow_up_at: datetime | None = None
+    ) -> Job:
+        if follow_up_at and follow_up_at.tzinfo is None:
+            raise ValueError("Follow-up date must include a timezone")
+        with self.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT data FROM jobs WHERE id=?", (job_id,)).fetchone()
+            if not row:
+                raise ValueError("Unknown job ID")
+            job = Job.model_validate_json(row[0])
+            db.execute(
+                "INSERT INTO events(job_id,at,old_status,new_status,reason) VALUES(?,?,?,?,?)",
+                (job.id, datetime.now(UTC).isoformat(), job.status.value, status.value, reason),
+            )
+            job.status = status
+            job.follow_up_at = follow_up_at
+            db.execute("UPDATE jobs SET data=? WHERE id=?", (job.model_dump_json(), job.id))
+        return job
+
+    def advance_followups(self, now: datetime) -> int:
+        count = 0
+        with self.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            for job_id, data in db.execute("SELECT id,data FROM jobs").fetchall():
+                job = Job.model_validate_json(data)
+                if (
+                    job.status in {Status.APPLIED, Status.AWAITING_RESPONSE}
+                    and job.follow_up_at
+                    and job.follow_up_at <= now
+                ):
+                    db.execute(
+                        """
+                        INSERT INTO events(job_id, at, old_status, new_status, reason)
+                        VALUES(?,?,?,?,?)
+                        """,
+                        (
+                            job.id,
+                            now.isoformat(),
+                            job.status.value,
+                            Status.FOLLOW_UP_DUE.value,
+                            "scheduled follow-up became due; no message sent",
+                        ),
+                    )
+                    job.status = Status.FOLLOW_UP_DUE
+                    db.execute("UPDATE jobs SET data=? WHERE id=?", (job.model_dump_json(), job_id))
+                    count += 1
+        return count
+
+    def save_evidence(self, job_id: str, evidence: dict, eligibility: dict):
+        """Update derived evidence without overwriting a concurrent lifecycle change."""
+        with self.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT data FROM jobs WHERE id=?", (job_id,)).fetchone()
+            if not row:
+                raise ValueError("Unknown job ID")
+            job = Job.model_validate_json(row[0])
+            job.match_evidence = evidence
+            job.eligibility = eligibility
+            db.execute("UPDATE jobs SET data=? WHERE id=?", (job.model_dump_json(), job_id))
+
+    def history(self, job_id: str) -> list[dict]:
+        with self.connection() as db:
+            db.row_factory = sqlite3.Row
+            return [
+                dict(row)
+                for row in db.execute("SELECT * FROM events WHERE job_id=? ORDER BY id", (job_id,))
+            ]
+
+    def get_profile(self) -> Profile:
+        with self.connection() as db:
+            row = db.execute("SELECT data FROM profile WHERE id=1").fetchone()
+        return Profile.model_validate_json(row[0]) if row else Profile()
+
+    def save_profile(self, profile: Profile):
+        for skill in profile.verified_skills:
+            quote = profile.skill_evidence.get(skill, "")
+            if not quote or quote not in profile.resume_text:
+                raise ValueError("Every verified skill needs a literal resume excerpt")
+        if any(quote not in profile.resume_text for quote in profile.experience_evidence):
+            raise ValueError("Experience evidence must quote the resume")
+        with self.connection() as db:
+            db.execute(
+                "INSERT INTO profile VALUES(1,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data",
+                (profile.model_dump_json(),),
+            )
+
+    def cache_get(self, key: str, now: float):
+        with self.connection() as db:
+            row = db.execute(
+                "SELECT data FROM source_cache WHERE key=? AND expires>?", (key, now)
+            ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def cache_set(self, key: str, data, expires: float):
+        with self.connection() as db:
+            db.execute(
+                """
+                INSERT INTO source_cache VALUES(?,?,?)
+                ON CONFLICT(key) DO UPDATE
+                SET expires=excluded.expires, data=excluded.data
+                """,
+                (key, expires, json.dumps(data)),
+            )
