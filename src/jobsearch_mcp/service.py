@@ -9,6 +9,7 @@ from .live import JobBatch, LiveResults
 from .models import Job
 from .reasoning import score_fit
 from .relevance import query_evidence
+from .reporting import job_result
 from .sources import public, scout
 from .store import Store
 
@@ -84,13 +85,8 @@ class CareerService:
                 job.match_evidence = score_fit(job, profile)
                 job.eligibility = job.match_evidence["location_eligibility"]
                 self.store.save_evidence(job.id, job.match_evidence, job.eligibility)
-                item = job.model_dump(mode="json")
+                item = job_result(job, profile, compact=True)
                 item["query_evidence"] = query_evidence(job, query)
-                item["description"] = job.description[:1500]
-                item["description_truncated"] = len(job.description) > 1500
-                item["sources"] = [
-                    s.model_dump(mode="json", exclude={"fields"}) for s in job.sources
-                ]
                 (excluded if job.match_evidence["exclusions"] else items).append(item)
             return {
                 "jobs": items,
@@ -198,13 +194,8 @@ class CareerService:
                 job = self.live_results.add(job, saved_job_id)
                 job.match_evidence = score_fit(job, profile)
                 job.eligibility = job.match_evidence["location_eligibility"]
-                item = job.model_dump(mode="json")
+                item = job_result(job, profile, compact=True)
                 item["query_evidence"] = query_evidence(job, query)
-                item["description"] = job.description[:1500]
-                item["description_truncated"] = len(job.description) > 1500
-                item["sources"] = [
-                    source.model_dump(mode="json", exclude={"fields"}) for source in job.sources
-                ]
                 item["saved_job_id"] = saved_job_id
                 if identity_warning:
                     item["identity_warning"] = identity_warning

@@ -38,6 +38,7 @@ dev = [
 career-search-mcp = "jobsearch_mcp.server:main"
 career-watcher = "jobsearch_mcp.job_watcher:main"
 career-backup = "jobsearch_mcp.backup:main"
+career-admin = "jobsearch_mcp.admin:main"
 
 [project.urls]
 Homepage = "https://github.com/macrovise/career-search-mcp"

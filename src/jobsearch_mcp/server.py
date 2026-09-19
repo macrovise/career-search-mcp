@@ -10,10 +10,11 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 from .auth import auth_provider
-from .models import Profile, Status
+from .models import ExternalJobEvidence, Profile, Status
 from .reasoning import build_profile as prepare_profile
 from .reasoning import score_fit as prepare_fit
 from .reasoning import writing_brief
+from .reporting import handoff, job_result, portable_job, role_fields
 from .service import CareerService
 from .store import Store
 
@@ -87,10 +88,7 @@ def create_server(store: Store | None = None, *, local_test: bool = False):
         for job in store.search_jobs(query, status, limit, offset):
             job.match_evidence = prepare_fit(job, profile)
             job.eligibility = job.match_evidence["location_eligibility"]
-            item = job.model_dump(mode="json")
-            item["description"] = job.description[:1500]
-            item["description_truncated"] = len(job.description) > 1500
-            item["sources"] = [s.model_dump(mode="json", exclude={"fields"}) for s in job.sources]
+            item = job_result(job, profile, compact=True)
             (excluded if job.match_evidence["exclusions"] else jobs).append(item)
         return {
             "jobs": jobs,
@@ -109,7 +107,7 @@ def create_server(store: Store | None = None, *, local_test: bool = False):
         job = service.get_job(job_id)
         job.match_evidence = prepare_fit(job, store.get_profile())
         job.eligibility = job.match_evidence["location_eligibility"]
-        return job.model_dump(mode="json")
+        return job_result(job, store.get_profile())
 
     @mcp.tool(annotations=READ, meta=metadata)
     def build_profile(raw_text: Annotated[str, Field(min_length=1, max_length=100000)]) -> dict:
@@ -131,24 +129,32 @@ def create_server(store: Store | None = None, *, local_test: bool = False):
         return store.get_profile().model_dump(mode="json")
 
     @mcp.tool(annotations=READ, meta=metadata)
-    def score_fit(job_id: str) -> dict:
+    def score_fit(job_id: str, cv_variant: str | None = None) -> dict:
         """Return deterministic matched/missing evidence, eligibility, salary,
         concerns and recommendation reasons.
         """
-        return prepare_fit(service.get_job(job_id), store.get_profile())
+        job, profile = service.get_job(job_id), store.get_profile()
+        return {**prepare_fit(job, profile), **role_fields(job, profile, cv_variant)}
 
     @mcp.tool(annotations=READ, meta=metadata)
-    def tailor_resume(job_id: str) -> dict:
+    def tailor_resume(job_id: str, cv_variant: str | None = None) -> dict:
         """Prepare cited resume and job evidence for ChatGPT to draft tailored changes.
 
         No overwrite or application.
         """
-        return writing_brief("tailor_resume", service.get_job(job_id), store.get_profile())
+        job, profile = service.get_job(job_id), store.get_profile()
+        result = writing_brief("tailor_resume", job, profile)
+        result.update(role_fields(job, profile, cv_variant))
+        result["selected_cv"] = (
+            profile.resume_variants[cv_variant].model_dump() if cv_variant else None
+        )
+        return result
 
     @mcp.tool(annotations=READ, meta=metadata)
     def cover_letter_brief(job_id: str) -> dict:
         """Prepare structured evidence and a writing contract for ChatGPT. Never send a letter."""
-        return writing_brief("cover_letter_brief", service.get_job(job_id), store.get_profile())
+        job, profile = service.get_job(job_id), store.get_profile()
+        return {**writing_brief("cover_letter_brief", job, profile), **role_fields(job, profile)}
 
     @mcp.tool(annotations=WRITE, meta=metadata)
     def update_status(
@@ -169,17 +175,59 @@ def create_server(store: Store | None = None, *, local_test: bool = False):
         offset: Annotated[int, Field(ge=0)] = 0,
     ) -> list[dict]:
         """Read persisted jobs with pagination; status never changes from reading."""
-        return [j.model_dump(mode="json") for j in store.list_jobs(status, limit, offset)]
+        return [job_result(j, store.get_profile()) for j in store.list_jobs(status, limit, offset)]
 
     @mcp.tool(annotations=READ, meta=metadata)
     def get_job_history(job_id: str) -> list[dict]:
         """Read saved lifecycle changes; an unsaved live result has no saved history."""
         return service.get_history(job_id)
 
+    @mcp.tool(annotations=READ, meta=metadata)
+    def assess_job_evidence(evidence: ExternalJobEvidence, cv_variant: str | None = None) -> dict:
+        """Assess a job from any existing plugin using the saved CV evidence.
+
+        Supply the source's actual fetched_at and full description when available.
+        Does not fetch URLs, contact providers, save jobs or change application state.
+        Returns the same five role fields and a portable handoff snapshot.
+        """
+        job = portable_job(evidence)
+        saved = store.find_match(job)
+        if saved:
+            job.status, job.follow_up_at = saved.status, saved.follow_up_at
+        job = service.live_results.add(job, saved.id if saved else None)
+        result = job_result(job, store.get_profile())
+        result.update(role_fields(job, store.get_profile(), cv_variant))
+        result["saved_job_id"] = saved.id if saved else None
+        result["handoff"] = handoff(job)
+        result["handoff"]["saved_job_id"] = result["saved_job_id"]
+        result.update(persisted=False, application_submitted=False)
+        return result
+
+    @mcp.tool(annotations=READ, meta=metadata)
+    def prepare_handoff(job_id: str) -> dict:
+        """Export portable source evidence; does not persist or transfer it to another agent."""
+        result = handoff(service.get_job(job_id))
+        if job_id.startswith("live:"):
+            _, result["saved_job_id"] = service.live_results.resolve(job_id)
+        return result
+
+    @mcp.tool(annotations=WRITE, meta=metadata)
+    def import_job_evidence(evidence: ExternalJobEvidence) -> dict:
+        """Explicitly persist a plugin discovery, deduplicate and preserve existing lifecycle.
+
+        Never submits an application. Unavailable on the read-only deployment.
+        """
+        job = store.upsert(portable_job(evidence))
+        return {
+            "job": job_result(job, store.get_profile()),
+            "persisted": True,
+            "application_submitted": False,
+        }
+
     if read_only_setting == "true":
         # Remove the actual handlers, not just their display metadata. The watcher
         # continues discovery independently; ChatGPT cannot invoke these writes.
-        for name in ("search_jobs", "save_profile", "update_status"):
+        for name in ("search_jobs", "save_profile", "update_status", "import_job_evidence"):
             mcp.local_provider.remove_tool(name)
     return mcp
 

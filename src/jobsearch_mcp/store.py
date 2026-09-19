@@ -93,7 +93,9 @@ def find_duplicate(job: Job, lookup: Callable[[str], Job | None]) -> Job | None:
 def merge_records(old: Job, new: Job) -> Job:
     evidence = {(s.source, s.source_id): s for s in old.sources}
     for source in new.sources:
-        evidence[(source.source, source.source_id)] = source
+        previous = evidence.get((source.source, source.source_id))
+        if previous is None or source.fetched_at >= previous.fetched_at:
+            evidence[(source.source, source.source_id)] = source
     ranked = sorted(
         evidence.values(),
         key=lambda s: (SOURCE_PRIORITY.get(s.source, 99), -s.fetched_at.timestamp()),
@@ -383,6 +385,14 @@ class Store:
                 raise ValueError("Every verified skill needs a literal resume excerpt")
         if any(quote not in profile.resume_text for quote in profile.experience_evidence):
             raise ValueError("Experience evidence must quote the resume")
+        for variant in profile.resume_variants.values():
+            if variant.resume_text not in profile.resume_text:
+                raise ValueError("CV variants must be included in the canonical resume evidence")
+            if any(
+                not quote or quote not in variant.resume_text
+                for quote in variant.skill_evidence.values()
+            ):
+                raise ValueError("Variant skill evidence must quote that CV")
         with self.connection() as db:
             db.execute(
                 "INSERT INTO profile VALUES(1,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data",

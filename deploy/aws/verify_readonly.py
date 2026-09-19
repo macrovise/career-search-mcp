@@ -6,6 +6,8 @@ import json
 from fastmcp import Client
 
 EXPECTED_TOOLS = {
+    "assess_job_evidence",
+    "prepare_handoff",
     "build_profile",
     "cover_letter_brief",
     "get_job_detail",
@@ -23,7 +25,7 @@ async def main():
     async with Client("http://127.0.0.1:8383/mcp") as client:
         tools = await client.list_tools()
         if {tool.name for tool in tools} != EXPECTED_TOOLS:
-            raise RuntimeError("The server does not expose exactly the ten read-only tools.")
+            raise RuntimeError("The server does not expose the expected read-only tools.")
         if any(not tool.annotations or not tool.annotations.readOnlyHint for tool in tools):
             raise RuntimeError("A tool is missing its read-only annotation.")
         profile = await client.call_tool("get_profile", {})

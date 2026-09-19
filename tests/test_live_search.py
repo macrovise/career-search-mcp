@@ -202,7 +202,7 @@ async def test_live_mcp_followups_work_in_read_only_mode_without_persistence(tmp
 
     async with Client(create_server(store, local_test=True)) as client:
         tools = {tool.name: tool for tool in await client.list_tools()}
-        assert len(tools) == 10
+        assert len(tools) == 12
         assert "search_live_jobs" in tools
         assert tools["search_live_jobs"].annotations.readOnlyHint is True
         assert tools["search_live_jobs"].annotations.openWorldHint is True
