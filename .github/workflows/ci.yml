@@ -56,3 +56,31 @@ jobs:
 
       - name: Audit dependencies
         run: pip-audit
+
+  vm-install:
+    name: Ubuntu private-tunnel deployment
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Install the exact revision and validate systemd units
+        run: sudo bash deploy/aws/install.sh "${{ github.sha }}"
+      - name: Verify real HTTP reads and backup under service restrictions
+        run: |
+          sudo systemctl start career-search.service
+          for attempt in $(seq 1 15); do
+            if /opt/career-search/venv/bin/python deploy/aws/verify_readonly.py; then
+              break
+            fi
+            sleep 2
+          done
+          /opt/career-search/venv/bin/python deploy/aws/verify_readonly.py
+          sudo systemctl start career-backup.service
+          sudo systemctl is-active career-search.service
+          sudo systemctl show career-backup.service --property=Result --property=ExecMainStatus
+          # No tunnel credential is present and no provider discovery runs in this job.
+          test "$(sudo systemctl is-enabled career-tunnel.service)" = disabled
+          test "$(sudo systemctl is-enabled career-watcher.timer)" = disabled
+      - name: Deployment service diagnostics on failure
+        if: failure()
+        run: sudo journalctl -u career-search.service -u career-backup.service --no-pager -n 80

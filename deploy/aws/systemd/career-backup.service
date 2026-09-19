@@ -1,0 +1,28 @@
+[Unit]
+Description=Create and verify a consistent Career Search database backup
+ConditionPathExists=/var/lib/career-search/career.sqlite3
+
+[Service]
+Type=oneshot
+User=career-search
+Group=career-search
+ExecStart=/opt/career-search/venv/bin/career-backup --database /var/lib/career-search/career.sqlite3 --directory /var/lib/career-search/backups --keep 7
+TimeoutStartSec=10min
+StateDirectory=career-search
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=true
+PrivateDevices=true
+PrivateNetwork=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+

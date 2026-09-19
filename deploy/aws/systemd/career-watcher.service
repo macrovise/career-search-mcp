@@ -1,0 +1,32 @@
+[Unit]
+Description=Discover and deduplicate Career Search jobs
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=career-search
+Group=career-search
+WorkingDirectory=/opt/career-search/app
+EnvironmentFile=/etc/career-search/service.env
+ExecStart=/opt/career-search/venv/bin/career-watcher --once
+TimeoutStartSec=15min
+StateDirectory=career-search
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=169.254.169.254/32
+IPAddressDeny=fd00:ec2::254/128

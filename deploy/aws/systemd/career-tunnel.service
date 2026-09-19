@@ -1,0 +1,38 @@
+[Unit]
+Description=Private OpenAI tunnel for Career Search MCP
+Wants=network-online.target career-search.service
+After=network-online.target career-search.service
+ConditionPathExists=/etc/career-search/runtime.key
+
+[Service]
+Type=simple
+User=career-tunnel
+Group=career-tunnel
+WorkingDirectory=/var/lib/career-tunnel
+EnvironmentFile=/etc/career-search/tunnel.env
+LoadCredential=runtime.key:/etc/career-search/runtime.key
+ExecStart=/opt/openai-tunnel/tunnel-client run --control-plane.api-key=file:%d/runtime.key --log.level=info --log.format=json
+Restart=on-failure
+RestartSec=15
+StateDirectory=career-tunnel
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=169.254.169.254/32
+IPAddressDeny=fd00:ec2::254/128
+
+[Install]
+WantedBy=multi-user.target
