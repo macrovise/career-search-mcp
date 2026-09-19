@@ -6,6 +6,31 @@
 and registers the MCP interface. `search_jobs` calls `CareerService.discover`, which
 queries adapters, reports provider failures, normalizes records, persists deduplicated
 jobs, and attaches deterministic fit evidence. `job_watcher` uses the same service.
+`search_saved_jobs` searches the persisted SQLite records by title, company, or description;
+it does not contact job sources or write to the database. Run the watcher separately when
+you want fresh listings.
+
+### ChatGPT Pro read-only mode
+
+OpenAI currently documents Pro access to custom MCP apps with read/fetch permissions in
+Developer Mode. Write-capable MCP access is limited to Business, Enterprise, and Edu.
+Secure MCP Tunnel does not change those plan permissions. See the current
+[OpenAI Help Center plan guidance](https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt).
+
+Set `CAREER_READ_ONLY=true` on the MCP server used by Pro. The server removes and rejects
+`search_jobs`, `save_profile`, and `update_status`. The read-only
+`search_saved_jobs(query, status, limit, offset)` tool searches only watcher-collected
+records and returns `jobs`, `excluded_jobs`, and pagination/coverage evidence. The watcher
+continues to perform source discovery and persistence as a separate local process; the
+ChatGPT MCP request does neither. The default `CAREER_READ_ONLY=false` preserves the
+existing interface for an authorized deployment with write access.
+
+The four ChatGPT reasoning tools remain available: `build_profile`, `score_fit`,
+`tailor_resume`, and `cover_letter_brief`. They prepare or retrieve evidence for ChatGPT
+and do not call an external LLM. In Pro read-only mode, ChatGPT cannot save a reviewed
+profile or change a job's lifecycle through this MCP. If a saved résumé profile is needed,
+stop the tunnel and initialize it through a trusted loopback-only client, then restart
+the MCP server with `CAREER_READ_ONLY=true` before reconnecting the tunnel.
 
 SQLite transactions cover identity lookup, merge, provenance, and persistence.
 WAL plus a busy timeout supports one MCP process and one watcher on the same local
@@ -108,6 +133,10 @@ work authorization begin unknown and must be supplied by the user.
 `save_profile` is an explicit write; the other four tools never alter the saved résumé.
 All are published with MCP annotations and, in OAuth mode, security scheme metadata.
 `search_jobs` is accurately marked as a write because discoveries are persisted.
+`search_saved_jobs` is read-only: query matching is limited to stored title/company/
+description text, applies optional status and pagination, and returns an explicit
+"saved listings only" coverage statement. It does not refresh listings or update stored
+fit evidence.
 
 ## Lifecycle
 

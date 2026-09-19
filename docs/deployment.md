@@ -20,6 +20,7 @@ Copy `.env.example` to `.env` locally; do not commit it. The server and watcher 
 | Variable | Use |
 |---|---|
 | CAREER_AUTH_MODE | `oauth` default, or `local` for trusted loopback tests only |
+| CAREER_READ_ONLY | `false` default. Set `true` to hide/reject `search_jobs`, `save_profile`, and `update_status` on the MCP server |
 | CAREER_PUBLIC_URL | HTTPS origin/base URL; token audience is this URL plus `/mcp` |
 | OAUTH_ISSUER | Exact issuer in signed access token, including any trailing slash |
 | OAUTH_JWKS_URL | HTTPS signing-key discovery endpoint |
@@ -64,18 +65,122 @@ still require a real deployment test.
 
 ## Private Secure MCP Tunnel alternative
 
-OpenAI documents [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
-and the official [tunnel-client](https://github.com/openai/tunnel-client). The inspected
-ChatGPT create-plugin form offers a Tunnel option. Availability in the form does not
-prove that the account has a provisioned tunnel or runtime credentials.
+OpenAI's current Help Center says ChatGPT Pro can connect custom MCP apps with read/fetch
+permissions in Developer Mode. Write-capable MCP access is currently limited to Business,
+Enterprise, and Edu. Secure MCP Tunnel does not change those plan permissions. This design
+therefore uses `CAREER_READ_ONLY=true` for Pro and uses the local watcher to refresh jobs;
+ChatGPT reads saved results with `search_saved_jobs`. The four evidence and writing-preparation
+tools remain available, while `search_jobs`, `save_profile`, and `update_status` are hidden
+and rejected. See [OpenAI's plan guidance](https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt).
 
-For this route, first provision a private tunnel associated only with the intended
-ChatGPT workspace/account, then install the official macOS client using the vendor's
-Homebrew instructions. Configure it against the loopback server, with only the
-necessary tunnel runtime permissions. Confirm tunnel readiness and access restrictions
-before connecting profile data. This deployment path has not been tested here and no
-tunnel credentials have been created. Do not confuse a private access-controlled tunnel
-with a publicly accessible unauthenticated URL.
+This is a supported setup path from current public documentation, not a verified connection
+for Trevor's account. No tunnel or runtime key has been provisioned here, and this account's
+tunnel self-service entitlement has not been checked. OpenAI's guide says personal accounts
+use their personal Platform organization, but tunnel creation is available only when the
+account rollout and permissions allow it. Check the
+[Platform Tunnels page](https://platform.openai.com/settings/organization/tunnels); if it
+shows an access/permission error, the relevant Platform owner or RBAC administrator must
+grant access. Tunnel permissions and ChatGPT Developer Mode are separate.
+
+### Tunnel and runtime prerequisites
+
+- Create or select a tunnel in Platform Tunnels. Associate it with the intended ChatGPT
+  workspace/account so it appears in that app's Tunnel picker.
+- The runtime principal and the person attaching the ChatGPT app need Tunnels Read + Use.
+  Creating or editing a tunnel needs Tunnels Read + Manage.
+- Create a **Restricted** runtime key with Tunnels Read + Use in Platform Runtime API keys.
+  Put it in `CONTROL_PLANE_API_KEY`. This key authenticates the tunnel daemon; it is not a
+  ChatGPT credential and does not make model API calls.
+- The separate `OPENAI_ADMIN_KEY` is only needed for CLI tunnel create/list/update/delete
+  and must not be used by the long-running daemon. Creating admin keys is separately
+  permission-controlled.
+- The machine running `tunnel-client` needs outbound HTTPS to `api.openai.com:443` and
+  local reachability to the MCP service. The MCP server does not need an inbound public port.
+
+On macOS, OpenAI documents Homebrew as the supported installation route; direct release ZIPs
+are not notarized. These are reference commands and have not been run here:
+
+```sh
+brew install openai/tools/tunnel-client
+tunnel-client --version
+tunnel-client help quickstart
+```
+
+Only after Platform tunnel access is verified and the tunnel ID and Restricted runtime key
+are provisioned, use a local loopback-only Career Search MCP server. Set
+`CAREER_AUTH_MODE=local`, `CAREER_READ_ONLY=true`, and `MCP_HOST=127.0.0.1` in the untracked
+`.env` file. Do not put local/no-auth mode behind a generic public tunnel. Start the MCP
+server and watcher as separate processes using the same `CAREER_DB_PATH`:
+
+```sh
+.venv/bin/career-search-mcp
+.venv/bin/career-watcher --once
+# Keep the watcher running for scheduled refreshes instead:
+.venv/bin/career-watcher
+```
+
+Then provide `CONTROL_PLANE_API_KEY` and `CONTROL_PLANE_TUNNEL_ID` to the client through a
+secure environment or secret manager. Do not paste keys into command history or profiles.
+The `sample_mcp_remote_no_auth` profile is only for this already-authorized Secure MCP
+Tunnel path to the loopback-only server; it is not a general public-access configuration.
+Run the documented HTTP profile flow:
+
+```sh
+tunnel-client init \
+  --sample sample_mcp_remote_no_auth \
+  --profile career-search \
+  --tunnel-id "$CONTROL_PLANE_TUNNEL_ID" \
+  --mcp-server-url http://127.0.0.1:8383/mcp
+tunnel-client doctor --profile career-search --explain
+tunnel-client run --profile career-search
+```
+
+If creating the tunnel through the CLI rather than the Platform UI, a separate admin key
+and at least one valid scope ID are required. Load `OPENAI_ADMIN_KEY` from a secure
+environment or secret manager; do not paste it into shell history. The documented syntax is:
+
+```sh
+tunnel-client admin tunnels create \
+  --name "Career Search MCP" \
+  --description "Private Career Search MCP" \
+  --organization-id "<Platform organization id>" \
+  --workspace-id "<ChatGPT workspace id>"
+```
+
+Wait 25–30 seconds after tunnel creation before expecting it to be ready. In ChatGPT, enable
+Developer Mode, create a custom app from Settings → Apps, choose Tunnel as the connection,
+then select or paste the tunnel ID. Keep `tunnel-client run` healthy while discovering and
+calling tools. Verify the tunnel runtime is ready, then call `search_saved_jobs` and confirm
+its response says saved listings only. The same local SQLite path must be used by the server
+and watcher. No Pro plan upgrade, purchase, account change, tunnel creation, or key creation
+is performed automatically by these instructions.
+
+See OpenAI's [Secure MCP Tunnel guide](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels),
+[onboarding guide](https://github.com/openai/tunnel-client/blob/master/docs/onboarding.md),
+[permissions guide](https://github.com/openai/tunnel-client/blob/master/docs/permissions.md),
+and [end-user guide](https://github.com/openai/tunnel-client/blob/master/docs/end-user-guide.md)
+for current CLI syntax, key roles, networking, and troubleshooting.
+
+### Adzuna API credentials
+
+Adzuna is optional and uses its official API; it does not scrape job pages. Register through
+the [Adzuna Developer signup](https://developer.adzuna.com/signup). The current form requires
+account details, an organisation/group name and website, the intended API application, and
+average monthly visitors; accept Adzuna's terms. The public docs say registration provides
+an `app_id` and `app_key`. If the required organisation or website fields do not fit a
+personal project, ask Adzuna how to register; do not invent organization details.
+
+Store the issued values in the untracked local `.env` file or a deployment secret manager:
+
+```dotenv
+ADZUNA_APP_ID=<issued app id>
+ADZUNA_APP_KEY=<issued app key>
+```
+
+Add `adzuna` to `CAREER_SOURCES` to enable it. The adapter calls Adzuna's official GB search
+endpoint (`https://api.adzuna.com/v1/api/jobs/gb/search/1`) and requires both credentials.
+The [Adzuna API overview](https://developer.adzuna.com/overview) documents those required
+parameters and JSON response format. No Adzuna account or credentials have been created.
 
 ## Connect Stage 1 sources in ChatGPT
 
@@ -83,8 +188,9 @@ Current provider documentation:
 [Himalayas](https://himalayas.app/docs/remote-jobs-mcp),
 [Scout](https://www.agentco.in/connect).
 
-1. Open ChatGPT -> Plugins -> Create app (the current UI may also expose this through
-   Settings -> Plugins). Name it `Himalayas Remote Jobs`.
+1. Open the current ChatGPT Plugins UI and choose Create app. OpenAI's current Help Center
+   calls this Settings -> Apps -> Create; Pro users must enable Developer Mode under
+   Settings -> Apps -> Advanced Settings. Name it `Himalayas Remote Jobs`.
 2. Choose Server URL `https://mcp.himalayas.app/mcp`, authentication `No Auth` for public
    search. Create and Connect. This server advertises employer/profile/write tools too;
    use only `search_jobs`, `get_jobs`, `get_job_details` and other relevant public reads.
@@ -93,7 +199,8 @@ Current provider documentation:
    OAuth. Let ChatGPT perform its supported registration/PKCE flow; use the exact
    callback shown there. Provider documentation says no Scout account is required, but
    an OAuth handshake is still required by the live endpoint.
-4. Select the connected plugin explicitly from the chat's Plugins/tools menu. A plugin
+4. Select the connected integration explicitly from the chat's Plugins/tools menu (called
+   Apps in the current Help Center). An app
    listed in settings may not be callable in an existing conversation automatically.
 5. Ask for actual read-only source calls using the verification prompt below. Expand
    the tool activity and confirm results or a real empty search response from that source.
@@ -111,20 +218,39 @@ Scout's own `scout_score` is not used by Career Search MCP. All reasoning remain
 
 ## Connect the finished Career Search MCP
 
-After deploying and verifying authentication:
+Choose the tool flow that matches the ChatGPT plan and server configuration.
 
-1. ChatGPT -> Plugins -> Create app -> name `Career Search MCP`.
-2. Server URL: `https://YOUR-HOST/mcp`; authentication: OAuth.
-3. Complete your identity provider's sign-in/consent. Verify the account's subject matches
-   `OAUTH_OWNER_SUBJECT` and the granted scope is `career:access`.
-4. Review the discovered tools. Select Career Search MCP in the target conversation.
-5. Run `get_profile`, then `search_jobs` with `Technical Support Engineer` and inspect
-   per-source status. Ask for `score_fit`, `tailor_resume` and `cover_letter_brief` for a
-   returned canonical job ID. Search again and confirm one record with retained provenance.
-6. Supply your actual résumé to `build_profile`; review ChatGPT's extracted facts and quotes
-   before saving. Initial preferences do not contain claimed skills or work authorization.
-7. For a user-selected role, record `interesting`, then restart the service and verify
-   persistence with `get_my_jobs` and `get_job_history`.
+### ChatGPT Pro read-only flow
 
-Do not report the system connected until those calls succeed inside ChatGPT. Do not
-mark applied just because the application brief has been prepared.
+After tunnel access and the local runtime are verified as described above:
+
+1. In ChatGPT's Plugins UI choose Create app, or use Settings -> Apps -> Create. Enable
+   Developer Mode if prompted, choose Tunnel as the connection, and select/paste the
+   provisioned tunnel ID.
+2. Select Career Search MCP in the conversation's Plugins/tools menu (called Apps in the
+   current Help Center) and inspect the tool list. With `CAREER_READ_ONLY=true`,
+   `search_jobs`, `save_profile`, and `update_status` should not be listed.
+3. Call `search_saved_jobs` with a role query such as `Technical Support Engineer`; verify
+   the response reports saved listings only and returns pagination/coverage information.
+   Run the local watcher separately for new source searches and persistence.
+4. For a returned job ID, call `score_fit`, `tailor_resume`, and `cover_letter_brief` to
+   prepare evidence for ChatGPT's reasoning. `build_profile` prepares a profile draft but
+   cannot save it through the Pro connection. To save a reviewed profile or change a
+   lifecycle state, stop the tunnel first, use a trusted loopback connection with writes
+   enabled, then restart the server in read-only mode before reconnecting the tunnel.
+
+### Full MCP write-enabled flow
+
+OpenAI currently limits full MCP write/modify actions to Business, Enterprise, and Edu.
+For an authorized deployment, leave `CAREER_READ_ONLY=false` and use the secure OAuth
+deployment above or a tunnel configured for the target workspace. In OAuth mode, add a
+custom app in ChatGPT, connect to `https://YOUR-HOST/mcp`, complete the identity provider's
+sign-in, and verify the owner subject and `career:access` scope. Select the app in the
+conversation, then test `get_profile`, `search_jobs`, `score_fit`, and the three evidence
+tools. After explicit user review, test profile/lifecycle persistence with `save_profile`,
+`update_status`, `get_my_jobs`, and `get_job_history` as appropriate. Never submit an
+application or send a message through this workflow.
+
+Do not report either route as connected until the relevant tool calls succeed inside
+ChatGPT. A successful local test, the presence of a Tunnel option, or published plan
+documentation does not prove this account's tunnel entitlement or live connection.

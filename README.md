@@ -37,6 +37,23 @@ The watcher stores discoveries and marks explicitly scheduled follow-ups due.
 It never marks a job applied, infers rejection from a missing search result, or sends email.
 It runs only while this process is running; no background system service is installed automatically.
 
+## ChatGPT Pro read-only access
+
+ChatGPT Pro supports custom MCP apps with read/fetch permissions in Developer Mode;
+write-capable MCP access is currently limited to Business, Enterprise, and Edu. For Pro,
+run the MCP server with `CAREER_READ_ONLY=true` and keep the watcher running locally as a
+separate process. ChatGPT can then use `search_saved_jobs` to read the watcher’s saved
+results without starting a live search or changing stored data. The four evidence and
+writing-preparation tools remain available. Profile saving and lifecycle changes are not
+available through the Pro connection. This reflects current OpenAI documentation; it does
+not confirm tunnel access or a working ChatGPT connection for any particular account. See
+[the tunnel and Pro setup guide](docs/deployment.md).
+
+No tunnel, API key, Adzuna account, subscription change, or deployment is provisioned
+automatically. Optional Adzuna credentials require registration with the
+[Adzuna developer site](https://developer.adzuna.com/signup); setup details are in the
+deployment guide.
+
 ## Development checks
 
 ```sh

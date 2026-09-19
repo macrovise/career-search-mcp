@@ -20,6 +20,9 @@ Snapshot: 19 September 2026. This file separates server/API tests from ChatGPT v
   ChatGPT connection flow and a separate provider-approved client for the watcher.
 - Safari automation repeatedly timed out during subsequent setup. No Scout ChatGPT
   connection is claimed.
+- On resumption, fresh Safari tabs and reloads briefly loaded ChatGPT, then returned
+  a blank page. The original conversation loaded but its composer became unavailable
+  before plugin selection. No additional successful ChatGPT tool call is claimed.
 
 ## Source adapters
 
@@ -45,12 +48,15 @@ OAuth identity provider, hosting account, paid resource or always-on service is 
 The Docker CLI is present but its daemon was unavailable; container execution is therefore
 not verified. Local Python HTTP tests and container configuration checks are distinct.
 No applications or external messages were sent. No résumé was supplied or uploaded.
+The OpenAI Platform tunnel-settings page reached an existing Apple account sign-in
+that requires the user to enter their Mac password. Tunnel entitlement and private
+connectivity therefore remain unverified; no tunnel or credential was created.
 
 See the task's final report for the final test count, commit hashes and live HTTP result.
 
 ## Completed local checks
 
-- 71 automated tests passed on the Mac's Python 3.14 runtime. Tests cover official API/RSS
+- 74 automated tests passed on the Mac's Python 3.14 runtime. Tests cover official API/RSS
   adapters, opt-in Scout's mocked MCP contract, cross-source deduplication and provenance,
   concurrent ingestion, lifecycle/follow-up persistence, evidence-only reasoning tools,
   SSRF/redirect/response-size controls, and signed-token HTTP authentication.
@@ -66,3 +72,12 @@ See the task's final report for the final test count, commit hashes and live HTT
   succeeded (including cached snapshots), and it sent zero messages/submitted zero applications.
 - Compose configuration validated using the example environment. Docker runtime testing
   remains unavailable because the Docker daemon was not running.
+- Added a read-only surface for clients with read/fetch access: `CAREER_READ_ONLY=true`
+  removes all three mutating tool handlers. Tests prove they cannot be called and
+  saved-job search leaves database contents unchanged. The four reasoning tools remain.
+- An actual loopback Streamable HTTP smoke test listed nine read-only tools, searched
+  a synthetic stored Technical Support Engineer fixture, and exercised all four
+  evidence tools successfully. This is transport validation, not a live provider call
+  or ChatGPT connection. The temporary server was stopped afterward.
+- The complete interface now has 12 tools, including the new `search_saved_jobs`;
+  the earlier live 11-tool test predates that addition.
