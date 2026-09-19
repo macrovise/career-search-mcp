@@ -283,3 +283,55 @@ async def test_every_live_request_fetches_again_and_old_references_keep_their_sn
     assert first["id"] != second["id"]
     assert service.get_job(first["id"]).salary_min == 46000
     assert service.get_job(second["id"]).salary_min == 47000
+
+
+@pytest.mark.parametrize("source", ["himalayas", "remotive", "jobicy", "weworkremotely"])
+@pytest.mark.parametrize("live", [True, False])
+async def test_query_filter_removes_incidental_matches_before_limit_and_persistence(
+    tmp_path, monkeypatch, source, live
+):
+    monkeypatch.setenv("CAREER_SOURCES", source)
+
+    async def provider(query):
+        rows = [
+            ("SEO/ASO Manager", "Coordinate with a technical support engineer.", "2026-09-19"),
+            ("Support Engineer", "Provide technical help with APIs.", "2026-09-18"),
+            ("Technical Support Engineer", "Help customers.", "2026-09-17"),
+        ]
+        return [
+            make_job(
+                source,
+                dict(
+                    title=title,
+                    description=description,
+                    posted_at=posted_at,
+                    source_id=str(index),
+                    source_url=f"https://example.com/{index}",
+                ),
+            )
+            for index, (title, description, posted_at) in enumerate(rows)
+        ]
+
+    monkeypatch.setitem(service_module.ADAPTERS, source, provider)
+    store = Store(str(tmp_path / "db"))
+    service = CareerService(store)
+    with store.connection() as db:
+        before = list(db.iterdump())
+    if live:
+        result = await service.search_live("Technical Support Engineer", limit=1)
+        assert result["total_count"] == 2
+        assert result["jobs"][0]["title"] == "Technical Support Engineer"
+        assert result["jobs"][0]["query_evidence"]["all_terms_in_title"]
+        with store.connection() as db:
+            assert list(db.iterdump()) == before
+    else:
+        result = await service.discover("Technical Support Engineer")
+        assert {j["title"] for j in result["jobs"]} == {
+            "Support Engineer",
+            "Technical Support Engineer",
+        }
+        assert not store.search_jobs("SEO")
+    assert all(j["query_evidence"]["matches"] for j in result["jobs"])
+    assert result["source_status"][source]["count"] == 2
+    assert result["source_status"][source]["retrieved_count"] == 3
+    assert result["source_status"][source]["query_filtered_count"] == 1

@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from .live import JobBatch, LiveResults
 from .models import Job
 from .reasoning import score_fit
+from .relevance import query_evidence
 from .sources import public, scout
 from .store import Store
 
@@ -57,16 +58,13 @@ class CareerService:
             )
             found, report = {}, {}
             for name, jobs, cached, error, fetched_at in results:
-                if name in {"remotive", "jobicy", "weworkremotely"}:
-                    words = query.casefold().split()
-                    jobs = [
-                        j
-                        for j in jobs
-                        if all(word in (j.title + " " + j.description).casefold() for word in words)
-                    ]
+                retrieved_count = len(jobs)
+                jobs = [job for job in jobs if query_evidence(job, query)["matches"]]
                 report[name] = {
                     "status": "error" if error else "ok",
                     "count": len(jobs),
+                    "retrieved_count": retrieved_count,
+                    "query_filtered_count": retrieved_count - len(jobs),
                     "cached": cached,
                     "error_type": error,
                     "fetched_at": fetched_at,
@@ -87,6 +85,7 @@ class CareerService:
                 job.eligibility = job.match_evidence["location_eligibility"]
                 self.store.save_evidence(job.id, job.match_evidence, job.eligibility)
                 item = job.model_dump(mode="json")
+                item["query_evidence"] = query_evidence(job, query)
                 item["description"] = job.description[:1500]
                 item["description_truncated"] = len(job.description) > 1500
                 item["sources"] = [
@@ -154,18 +153,13 @@ class CareerService:
             )
             batch, report = JobBatch(), {}
             for name, jobs, cached, error, fetched_at in results:
-                if name in {"remotive", "jobicy", "weworkremotely"}:
-                    words = query.casefold().split()
-                    jobs = [
-                        job
-                        for job in jobs
-                        if all(
-                            word in (job.title + " " + job.description).casefold() for word in words
-                        )
-                    ]
+                retrieved_count = len(jobs)
+                jobs = [job for job in jobs if query_evidence(job, query)["matches"]]
                 report[name] = {
                     "status": "error" if error else "ok",
                     "count": len(jobs),
+                    "retrieved_count": retrieved_count,
+                    "query_filtered_count": retrieved_count - len(jobs),
                     "cached": cached,
                     "error_type": error,
                     "fetched_at": fetched_at,
@@ -180,6 +174,7 @@ class CareerService:
             candidates = sorted(
                 batch.jobs.values(),
                 key=lambda job: (
+                    not query_evidence(job, query)["all_terms_in_title"],
                     -(job.posted_at.timestamp() if job.posted_at else 0),
                     job.title.casefold(),
                     job.id,
@@ -204,6 +199,7 @@ class CareerService:
                 job.match_evidence = score_fit(job, profile)
                 job.eligibility = job.match_evidence["location_eligibility"]
                 item = job.model_dump(mode="json")
+                item["query_evidence"] = query_evidence(job, query)
                 item["description"] = job.description[:1500]
                 item["description_truncated"] = len(job.description) > 1500
                 item["sources"] = [
@@ -226,6 +222,9 @@ class CareerService:
                 "coverage": (
                     "Fresh provider requests; no saved-listing or source-cache fallback. "
                     "Bounded first-page searches/feeds, not exhaustive market coverage. "
+                    "Whole-word query filtering requires role terms in the title; "
+                    "all query terms in the title sort before description matches, "
+                    "then by recency. "
                     "Fresh retrieval does not guarantee the provider's listings are current."
                 ),
                 "live_reference": (

@@ -20,6 +20,21 @@ Each live-search response includes provider `source_status` with `fetched_at`,
 delay, or fail to return listings. Read-only means no persistent writes here; live search
 still contacts external services and needs network access.
 
+Both live search and watcher discovery apply the same literal query filter to every
+provider before deduplication. Query terms must occur as whole words (or simple plurals)
+in the title or description. Role searches also require title evidence: for example,
+`Technical Support Engineer` requires `support` and `engineer` in the title, while
+`technical` may appear in the description. This rejects incidental mentions of another
+team in an unrelated job description. Skill-only queries still search descriptions.
+This conservative filter can miss synonyms; it does not claim semantic matching.
+
+Each returned record includes `query_evidence` with matched title/description terms and
+the required title terms. Each provider reports `retrieved_count`, `query_filtered_count`,
+and its accepted `count`; zero accepted results are distinct from a provider failure.
+Live results containing every query term in the title appear first, then remaining
+matches, ordered by posting date within each group. Filtering happens before the response
+limit. Previously saved jobs and their lifecycle states are not removed by this filter.
+
 Live result IDs start with `live:` and remain in process memory for 15 minutes, up to 500
 listings. `get_job_detail`, `score_fit`, `tailor_resume`, and `cover_letter_brief` accept
 these IDs. When a result matches a saved job, it also returns the raw `saved_job_id`;
