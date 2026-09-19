@@ -1,9 +1,10 @@
 # AWS deployment using the private ChatGPT tunnel
 
-This directory prepares a single Ubuntu 24.04 x86_64 server. The London deployment
-passed migration, live discovery, private tunnel and reboot checks on 19 September
-2026; see [verification status](../../docs/verification.md) for the separate
-ChatGPT conversation result. The current deployed revision is
+This directory prepares a single Ubuntu 24.04 x86_64 server. The earlier nine-tool
+London deployment passed migration, private-tunnel and reboot checks on 19 September
+2026. The current release passed upgrade and live-search checks; it has not had a
+separate reboot test. See [verification status](../../docs/verification.md) for the
+revision-specific server and ChatGPT evidence. The current deployed revision is
 `baf2013293169b6196323b2de50ac8b1103316c3`; its 10-tool read-only surface and live
 provider search passed direct MCP HTTP acceptance. ChatGPT Settings now lists all ten
 tools, and real ChatGPT live-search and evidence calls succeeded after an initial
