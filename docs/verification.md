@@ -81,3 +81,23 @@ See the task's final report for the final test count, commit hashes and live HTT
   or ChatGPT connection. The temporary server was stopped afterward.
 - The complete interface now has 12 tools, including the new `search_saved_jobs`;
   the earlier live 11-tool test predates that addition.
+
+## Safari continuation
+
+- OpenAI Platform sign-in completed. The Personal organization exposes tunnel management,
+  including an existing unrelated OpenDesign tunnel. A separate Career Search MCP form
+  was prepared for the same personal ChatGPT workspace; creation is awaiting confirmation.
+- Installed the official `openai/tools/tunnel-client` Homebrew formula, version 0.0.14.
+  No Career Search tunnel runtime has been launched or credential created.
+- Created the Scout Job Search custom integration in ChatGPT and initiated its supported
+  OAuth flow. Scout rejected ChatGPT's own generated callback with `invalid_request`:
+  `redirect_uri is not on the allowlist of known MCP client callback URLs`.
+  This is a provider-side callback allowlist blocker, not missing user credentials.
+  No Scout search or completed connection is claimed; do not substitute an unauthorized
+  callback or copy another client's token. The provider needs to support ChatGPT's current
+  `https://chatgpt.com/connector/oauth/...` callback path. No message was sent to Scout.
+- Explicitly selected Himalayas Remote Jobs in the existing ChatGPT conversation. The
+  connector is now exposed and a real search was initiated. ChatGPT then reported that
+  every `search_jobs` invocation was blocked by its runtime. The answer stream stalled
+  before rendering the complete error; do not infer an HTTP status or provider cause.
+  No successful ChatGPT search is verified.
