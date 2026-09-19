@@ -1,25 +1,31 @@
 # Verification status
 
 Updated 19 September 2026 after deploying revision
-`fef4d8ae2d1ace9bf45ed08e183506f1df4eb45d`. Server-side AWS verification covers the new
-live-search tool. ChatGPT verification of the refreshed 10-tool interface and a live search
-is still pending because the Mac is locked. This file keeps direct MCP checks separate
-from ChatGPT request cards.
+`baf2013293169b6196323b2de50ac8b1103316c3`. Server-side AWS verification covers the new
+live-search tool and the role-title relevance fix. ChatGPT Settings lists the refreshed
+10-tool interface, and the final ChatGPT live-search check passed at 13:35 UTC. This file
+keeps direct MCP checks, advertised metadata, and actual ChatGPT calls separate.
 
 ## Current AWS release
 
-- The deployed revision is `fef4d8ae2d1ace9bf45ed08e183506f1df4eb45d`. Direct MCP HTTP
+- The deployed revision is `baf2013293169b6196323b2de50ac8b1103316c3`. Direct MCP HTTP
   listed exactly 10 read-only tools; the full interface has 13 tools.
-- `search_live_jobs("Technical Support Engineer", limit=10)` returned 10 reviewable jobs
-  from 38 total and set `truncated=true`. Each configured live provider reported
+- `search_live_jobs("Technical Support Engineer", limit=10)` returned four reviewable jobs
+  from four total and set `truncated=false`. Each configured live provider reported
   `cached=false` and `status=ok`:
 
-  | Provider | Results | Fetched |
-  |---|---:|---|
-  | Himalayas | 4 | 2026-09-19 12:42:33-34 UTC |
-  | Remotive | 5 | 2026-09-19 12:42:33-34 UTC |
-  | Jobicy | 23 | 2026-09-19 12:42:33-34 UTC |
-  | We Work Remotely | 6 | 2026-09-19 12:42:33-34 UTC |
+  | Provider | Retrieved | Query matches | Filtered | Fetched |
+  |---|---:|---:|---:|---|
+  | Himalayas | 4 | 3 | 1 | 2026-09-19 13:35:07 UTC |
+  | Remotive | 17 | 0 | 17 | 2026-09-19 13:35:07 UTC |
+  | Jobicy | 50 | 1 | 49 | 2026-09-19 13:35:07 UTC |
+  | We Work Remotely | 27 | 0 | 27 | 2026-09-19 13:35:07 UTC |
+
+- Returned titles were `Sr. Technical Support Engineer, Focused Services`,
+  `Associate Linux Support Engineer`, `Software Support Engineer`, and
+  `Software Engineer - L3 Support`.
+  Every returned record included matching query evidence; unrelated description-only
+  matches were removed before applying the result limit.
 
 - Using a returned live ID, `get_job_detail` and the three job-specific evidence tools
   (`score_fit`, `tailor_resume`, and `cover_letter_brief`) all completed successfully.
@@ -33,8 +39,8 @@ from ChatGPT request cards.
   were not changed.
 - The feature CI run passed all five checks: Python 3.11, 3.12, and 3.13, dependency audit,
   and the Ubuntu installer check. See the
-  [CI run](https://github.com/macrovise/career-search-mcp/actions/runs/35443489214).
-  **89 local tests passed.**
+  [CI run](https://github.com/macrovise/career-search-mcp/actions/runs/35446157353).
+  **106 local tests passed.**
 
 Fresh retrieval is not a promise of complete provider inventory. The search is bounded by
 provider availability and response limits; Scout and Adzuna remain disabled for the
@@ -51,9 +57,28 @@ real data; the synthetic `build_profile` fixture reported `saved=false`. The ori
 conversation rejected developer MCP calls, so a fresh conversation was required for those
 checks.
 
-That history does not verify `search_live_jobs` in ChatGPT. The new 10-tool list and a
-live-search request from the ChatGPT app are still pending Mac access. The server-side AWS
-HTTP check above does not count as ChatGPT verification.
+At 13:17 UTC, Settings → Plugins → Career Search MCP → Refresh displayed ten READ
+actions, including `search_live_jobs` marked READ / OPEN WORLD. The updated definition
+survived a page reload. However, the new [Live Search Failure conversation](https://chatgpt.com/c/6aae8b6f-0bb4-83ed-846f-672266224969)
+reported `TypeError: tools.mcp__Career_Search_MCP__search_live_jobs is not a function`
+and an inventory count of zero for that action. A subsequent retry in the same conversation
+successfully discovered and called `search_live_jobs` at 13:30:20 UTC: five jobs from 37
+total, with all four sources reporting `status=ok` and `cached=false`. The actual request
+and response card was inspected in Safari. `get_job_detail` and `score_fit` also reported
+success with a returned live ID. Thus the earlier discovery failure is no longer a blocker.
+
+That first successful call exposed an unrelated SEO/ASO Manager result. The current
+revision fixes the overly broad description-only matching and passed the direct AWS
+acceptance above. The post-fix ChatGPT call at **13:35:31 UTC** returned all four relevant
+jobs from four total (`limit=5`, `persisted=false`, `application_submitted=false`). All
+four providers reported fresh requests, with the same retrieved/accepted counts as the
+AWS check above. The result included the four support-engineering titles listed above
+and no SEO/ASO Manager. ChatGPT then successfully called `get_job_detail` and `score_fit`
+for the returned Palo Alto Networks live ID. The completed response and tool-call controls
+were inspected in Safari; the conversation is linked above. Live IDs are temporary and
+are not stable links to reuse later. An independent AWS detail read resolved the exact
+live ID returned by ChatGPT to the same title and a 13:35:31 UTC source snapshot,
+confirming that the conversation used a newly fetched server result.
 
 Four Himalayas `search_jobs` calls also returned cards in the earlier fresh conversation.
 They reported 154 UK and 41 worldwide Support Engineer matches, and 113 UK and 32

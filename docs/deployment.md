@@ -85,12 +85,13 @@ stopped.
 Historical ChatGPT verification on 19 September covered the earlier nine-tool interface:
 a fresh Chat conversation successfully called `get_profile`, `search_saved_jobs` and all
 four evidence tools through AWS. That remains evidence for those six calls, not for the
-new live-search tool. The current AWS revision, `fef4d8ae2d1ace9bf45ed08e183506f1df4eb45d`,
+new live-search tool. The current AWS revision, `baf2013293169b6196323b2de50ac8b1103316c3`,
 exposes 10 read-only tools and 13 tools in the full interface. Direct MCP HTTP verification
-searched for `Technical Support Engineer` with a limit of 10, returned 10 reviewable jobs
-from 38 total, then passed a live ID to `get_job_detail`, `score_fit`, `tailor_resume`,
+searched for `Technical Support Engineer` with a limit of 10, returned four reviewable jobs
+from four total, then passed a live ID to `get_job_detail`, `score_fit`, `tailor_resume`,
 and `cover_letter_brief`. The complete SQLite dump digest was unchanged before and after.
-The updated live tool has not yet been invoked inside ChatGPT; that check is pending Mac access. See
+ChatGPT Settings lists all ten tools after Refresh. Following an initial discovery failure,
+a real ChatGPT live-search call and follow-up evidence reads succeeded. See
 [verification status](verification.md) for the separate server and ChatGPT evidence.
 
 Use the [AWS deployment guide](../deploy/aws/README.md) for the active hosted setup.
@@ -235,15 +236,16 @@ After tunnel access and the local runtime are verified as described above:
    current Help Center) and inspect the tool list. With `CAREER_READ_ONLY=true`,
    `search_jobs`, `save_profile`, and `update_status` should not be listed. The current AWS
    revision exposes 10 read-only tools, including `search_live_jobs`; direct server HTTP
-   checks passed. The earlier ChatGPT conversation still records the nine-tool interface,
-   so refresh and verify the ChatGPT tool list when Mac access is available.
+   checks passed. ChatGPT Settings was refreshed and lists all ten tools; real live-search
+   calls are recorded in the current verification status.
 3. Call `search_saved_jobs` with a role query such as `Technical Support Engineer`; verify
    the response reports saved listings only and returns pagination/coverage information.
    Run the local watcher separately for new source searches and persistence.
 4. Call `search_live_jobs` with a relevant role query. Check the per-source fetch time and
    failure status, `cached: false`, and the returned/truncated counts. Its `live:` IDs are
    temporary; use one with `get_job_detail` or an evidence tool while it is available. The
-   AWS HTTP acceptance passed these checks; a corresponding ChatGPT call is still pending.
+   AWS HTTP acceptance passed these checks; ChatGPT also successfully called live search
+   after an initial tool-discovery failure. See verification status for revision-specific evidence.
 5. For a saved or live job ID, call `score_fit`, `tailor_resume`, and `cover_letter_brief`
    to prepare evidence for ChatGPT's reasoning. `build_profile` prepares a profile draft
    but cannot save it through the Pro connection. To save a reviewed profile or change a
