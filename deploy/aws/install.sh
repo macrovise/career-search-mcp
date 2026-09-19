@@ -12,7 +12,7 @@ source /etc/os-release
 [[ $(uname -m) == x86_64 ]] || die 'This installer supports x86_64 only.'
 
 source_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
-repo_git() { git -c safe.directory="$source_dir" -C "$source_dir" "$@"; }
+repo_git() { GIT_OPTIONAL_LOCKS=0 git -c safe.directory="$source_dir" -C "$source_dir" "$@"; }
 [[ $(repo_git rev-parse HEAD) == "$1" ]] || die 'The checkout does not match the reviewed revision.'
 [[ -z $(repo_git status --porcelain) ]] || die 'Use a clean committed checkout.'
 for target in /opt/career-search /opt/openai-tunnel /etc/career-search; do
