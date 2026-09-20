@@ -1,3 +1,5 @@
+> Current release: see [Evidence quality and shared application packs](quality-and-packs.md). The interface now exposes 23 tools (17 reads, six writes); older deployment counts below are historical.
+
 # Architecture and evidence contract
 
 ## Agent integration extension
@@ -137,7 +139,7 @@ are not merged by the fallback fingerprint. Missing location/date prevents that 
 No fuzzy title-only merge is used. Some duplicates will remain when evidence is insufficient;
 that is safer than losing separate applications. Conflicting aliases are flagged for review.
 
-Field precedence is deterministic: Himalayas, Scout, Adzuna, Jobicy, Remotive, WWR;
+Field precedence is deterministic: direct employer/ATS evidence first, then Himalayas, Scout, Adzuna, Jobicy, Remotive, WWR;
 newer evidence wins within a source. This is an explicit convenience rule, not a claim
 that aggregators are authoritative. All snapshots and conflicting location/salary/type
 values remain visible so ChatGPT can prefer the employer's evidence during review.

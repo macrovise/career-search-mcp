@@ -1,3 +1,5 @@
+> Current release: see [Evidence quality and shared application packs](quality-and-packs.md). The interface now exposes 23 tools (17 reads, six writes); older deployment counts below are historical.
+
 # Local development, secure hosting and ChatGPT connection
 
 ## Do you need hosting?

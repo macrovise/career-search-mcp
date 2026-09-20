@@ -1,3 +1,5 @@
+> Current release: see [Evidence quality and shared application packs](docs/quality-and-packs.md). The interface now exposes 23 tools (17 reads, six writes); older deployment counts below are historical.
+
 # Career Search MCP
 
 A personal job-search evidence service for ChatGPT, forked from
