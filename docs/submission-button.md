@@ -24,3 +24,15 @@ saying “Mark this role as submitted” in the conversation.
 The interface adds one read tool: full mode has 18 tools (13 read and 5 write).
 Scheduled execution does not imply a human clicked a confirmation: scheduled agents
 must never infer submission from a prepared application or rendered card.
+
+## Verification on 20 September 2026
+
+The running AWS endpoint served 18 tools and the UI resource. ChatGPT's connection
+was refreshed. Both replacement career agents completed a controlled idempotent
+write followed by a read-back of an already confirmed submission. Safari visibly
+rendered the real submitted card in both agent conversations and a fresh test chat.
+No unsubmitted production role was falsely marked to test a click. The confirmation,
+cancellation, write/read-back ordering and failure paths passed nine isolated
+JavaScript interaction tests; all 138 Python tests and Ruff checks passed.
+Both existing scheduled prompts were updated and read back while retaining their
+disabled states, timing and notification preferences. Unattended writes remain untested.
