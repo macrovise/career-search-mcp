@@ -48,6 +48,42 @@ working access. Their configuration amendments remain saved, but original-agent 
 scheduled MCP access and automatic shared persistence remain unverified or blocked.
 No replacement conversations or schedules were created.
 
+## Replacement-agent acceptance, 20 September 2026
+
+Trevor approved two replacement conversations while preserving originals and schedules:
+
+- Support Application Agent — Career Search: `6aaf84db-0048-83eb-adc8-dda8c07084ef`
+- Worldwide Support Role Scan Agent — Career Search: `6aaf853c-86d4-83ed-9828-ceda66d4cd44`
+
+Both actually called `get_profile` and read current canonical Library policy/state.
+Their original complete scheduled-task prompts were copied as conversation instructions,
+with explicit manual-only operation and restart-recovery guidance. The application
+replacement passed detail, fit for both CV variants, tailoring evidence and cover-letter
+brief calls, with all five requested fields. The worldwide replacement passed live search,
+detail, fit, portable evidence assessment and handoff export.
+
+Unlike the original conversations, the replacements expose canonical Library mutation
+capabilities. One new private test-only handoff event was uploaded with no overwrite and
+read back as Library version 1. The application replacement then independently read that
+exact stored record, re-assessed its original source snapshot, and passed fit/tailoring
+calls with all five fields. The original Jobicy retrieval timestamp was unchanged; a direct
+AWS call resolved the exact temporary ID returned in the receiving conversation.
+
+The test used a US-restricted role as a fixture, not a recommendation. HTTP remained
+NOT_CHECKED. No seen-role registry, existing Library file, application status or schedule
+was changed. The originating task relayed the exact file ID; this proves shared-record
+handoff but not automatic triggering, unattended execution or an AWS state write.
+The public MCP remains read-only. Standalone Jobicy was unavailable in the replacement;
+its successful provider-adapter fetch must not be presented as direct-plugin execution.
+
+Direct Himalayas plugin cooperation also passed: a fresh exact-detail response was
+assessed by Career Search with DIRECT_CONNECTOR provenance and all five fields. Since
+the plugin omits retrieval time, the caller measured request start and response receipt
+around a new call, explicitly labelling the latter as caller-observed completion. The
+vendor backend fetch/cache time remains unknown. Assessment preserved the measured
+2026-09-20T07:23:07.055Z timestamp. This was an integration fixture, not an eligible-job
+recommendation. Remaining plugin availability must still be established individually.
+
 ## Historical live-search release
 
 Updated 19 September 2026 after deploying revision

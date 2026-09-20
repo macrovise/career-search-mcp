@@ -59,6 +59,18 @@ ACCESS_LIMITED and UNAVAILABLE. Distinguish disabled, failed and zero-result pro
 Scout remains blocked until its OAuth callback is accepted. It must not be claimed searched.
 A plugin outage does not justify inventing results or falling back silently to stale data.
 
+## Retrieval timestamps from direct plugins
+
+Some direct plugins omit a retrieval timestamp. A caller may measure UTC request start
+and response receipt around a **new** awaited connector call, using a reliable runtime
+clock. Its measured response-received time is the snapshot's `fetched_at`; explicitly
+label it **caller-observed retrieval completion**. Provider backend fetch/cache time
+remains unknown. Never stamp an old result with the current/report-generation time.
+Keep `retrieval_method` within its schema enum; preserve timestamp basis and measurement
+metadata alongside the evidence in the report or portable handoff envelope. Reassessment
+must retain the measured retrieval time. Without a reliable observation or source time,
+report UNAVAILABLE rather than inventing one.
+
 ## Controlled writes
 
 The deployed read-only MCP exposes 12 tools. `import_job_evidence`, `save_profile`,
