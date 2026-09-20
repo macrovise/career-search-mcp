@@ -1,8 +1,8 @@
 # Shared Career agent contract v1
 
 Career Search complements the existing job plugins. The Worldwide Support Role Scan
-Agent owns discovery and employer verification; the Support Application Agent owns
-user-selected application preparation. ChatGPT interprets evidence and writes; the MCP
+Agent and Support Application Agent both discover, assess, and prepare suitable
+unsubmitted roles for human review. ChatGPT interprets evidence and writes; the MCP
 never calls another LLM, submits an application or sends a message.
 
 ## Every role, from every source
@@ -95,10 +95,25 @@ Do not compress these rows into prose. Keyword coverage is not an employer ATS
 score or an overall suitability rating; incidental terms in links can affect it.
 Review the full description for actual requirements and gaps.
 
-Call `score_fit` for assessed shortlisted roles. Application preparation also calls
-`tailor_resume` and `cover_letter_brief`, then uses their returned evidence for
-specific truthful suggestions. A tool's presence is not evidence it executed.
-Worldwide discovery uses portable evidence for handoff and does not submit applications.
+Both agents actually call `score_fit`, `tailor_resume`, and `cover_letter_brief`
+for substantively assessed surfaced roles, including Worldwide Scan. Clearly excluded
+discovery noise can be logged without preparation calls. A tool's presence is not
+evidence it executed; report failures honestly. Use portable evidence for handoff.
+
+For suitable roles, deliver a fuller verdict explaining why to pursue or hold, matched
+requirements with CV evidence, required versus desirable gaps, experience/seniority,
+salary, country/remote eligibility, phone/on-call/weekend burden, freshness, uncertainties
+and the next step. Prepare actual review-ready drafts: CV variant, truthful rewritten
+summary/bullets, a tailored cover letter, answers to known form questions and missing
+information. Do not invent employer questions, experience or personal answers. Neither
+agent submits, uploads CVs, enters external forms, or contacts employers.
+
+Previously seen does not mean applied. Relevant previously surfaced roles remain
+eligible for preparation unless submission is confirmed or another exclusion applies.
+Check shared application history and reuse existing drafts. Suppress confirmed submitted
+requisitions from discovery/preparation, including later application stages; retain them
+for tracking. If history is unavailable, label submission status unknown and preparation
+provisional. Draft generation alone must not change application lifecycle state.
 
 Run independent accessible connector searches concurrently after any prerequisites.
 Dependent detail retrieval and assessment follow their inputs. Report each provider
