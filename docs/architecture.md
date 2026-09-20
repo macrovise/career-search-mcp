@@ -6,8 +6,8 @@ See [Shared Career agent contract v1](agent-integration.md) for the new five-fie
 contract, two CV variants, plugin evidence assessment, portable handoff and admin writes.
 The current code exposes 13 read-only tools and 18 tools in full mode.
 `import_job_evidence` is a write and is removed in read-only mode. The AWS server now
-exposes all 18 tools; ChatGPT refresh and per-agent write/read-back verification are still
-pending. Earlier 10/13-tool results are historical evidence.
+exposes all 18 tools. ChatGPT refresh and idempotent write/read-back checks passed in
+both replacement career agents. Interactive card rendering is checked separately. Earlier 10/13-tool results are historical evidence.
 
 ## Main workflow
 
@@ -221,4 +221,4 @@ See [Shared application register](application-register.md). Confirmed submission
 is retained independently of lifecycle status and excludes a vacancy from discovery and
 new preparation. Existing read tools expose application_tracking. Full mode adds the
 `mark_as_applied` write. The AWS backend now exposes all 18 tools; ChatGPT refresh and
-per-agent write/read-back checks are pending.
+per-agent idempotent write/read-back checks passed. See [submission cards](submission-button.md).

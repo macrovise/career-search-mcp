@@ -91,9 +91,9 @@ a real ChatGPT live-search call and follow-up evidence reads succeeded. See
 
 On 20 September 2026, the existing AWS service was switched to `CAREER_READ_ONLY=false`.
 Direct inventory verification confirmed 18 tools, including five write tools. The private
-tunnel and loopback binding remain in place. **ChatGPT connection refresh and actual
-write/read-back verification in both career agents are pending.** This backend check does
-not establish unattended scheduled write support.
+tunnel and loopback binding remain in place. ChatGPT connection refresh and actual idempotent
+write/read-back verification passed in both replacement career agents. These checks do
+not establish unattended scheduled write support or interactive card rendering.
 
 Use the [AWS deployment guide](../deploy/aws/README.md) for the active hosted setup.
 The following Mac instructions describe a local alternative; switching back requires

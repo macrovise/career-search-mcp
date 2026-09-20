@@ -41,17 +41,19 @@ It runs only while this process is running; no background system service is inst
 
 [OpenAI's Developer Mode documentation](https://developers.openai.com/api/docs/guides/developer-mode)
 supports read and write MCP tools on ChatGPT Pro. Write actions require confirmation by
-default. `CAREER_READ_ONLY=false` exposes 18 tools: 12 reads and five writes:
+default. `CAREER_READ_ONLY=false` exposes 18 tools: 13 reads and five writes:
 `search_jobs`, `save_profile`, `update_status`, `import_job_evidence`, and `mark_as_applied`.
 These writes save career records; none submits an application or contacts an employer.
 
-On 20 September 2026, the existing AWS service was switched to full mode and its 17-tool
-inventory was verified directly. Refreshing the ChatGPT connection and verifying a write
-followed by a read-back in both career agents remain separate, pending checks. Backend
-activation alone does not establish that ChatGPT or an unattended scheduled run can write.
+On 20 September 2026, AWS full mode and all five write tools were verified. Both
+replacement career agents successfully called `mark_as_applied` with an existing
+confirmed submission, then read back the unchanged evidence. The new
+[submission card](docs/submission-button.md) adds a thirteenth read tool, making 18
+in total. Interactive ChatGPT rendering is a separate verification step; unattended
+scheduled writes have not been verified.
 
 `CAREER_READ_ONLY=true` remains an optional restriction, independent of the Pro plan.
-Its 12-tool surface includes `search_saved_jobs` for stored records and `search_live_jobs`
+Its 13-tool surface includes `search_saved_jobs` for stored records and `search_live_jobs`
 for on-demand queries without persistence. The four evidence and writing-preparation
 tools remain available in either mode. Earlier nine- and ten-tool ChatGPT checks are
 historical evidence only. See [verification status](docs/verification.md) and
