@@ -134,6 +134,13 @@ def role_fields(job: Job, profile: Profile, cv_variant: str | None = None) -> di
         "concerns": fit["concerns"],
         "matched_requirements": fit["matched_requirements"],
         "missing_skills": fit["missing_skills"],
+        "requirement_fit": fit["requirement_fit"],
+        "operational_constraints": fit["operational_constraints"],
+        "assessment_contract": {
+            "primary": "quote-based requirements, constraints, eligibility and exclusions",
+            "secondary": "estimated keyword coverage",
+            "verdict_owner": "ChatGPT with user review",
+        },
         "destination_checks": [
             {
                 "country": country,

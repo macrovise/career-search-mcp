@@ -86,3 +86,87 @@ def test_recency_phone_and_unknown_salary_visible():
         datetime(2026, 9, 19, tzinfo=UTC),
     )
     assert len(result["concerns"]) >= 3
+
+
+def test_structured_requirement_fit_uses_quotes_and_explicit_unknowns():
+    listing = job(
+        description=(
+            "Requirements:\n"
+            "- SQL troubleshooting experience\n"
+            "- Must have hands-on Kubernetes administration\n"
+            "Preferred:\n"
+            "- Python scripting is a plus"
+        )
+    )
+    profile = Profile(
+        resume_text="Resolved SQL incidents for SaaS customers.",
+        verified_skills=["SQL"],
+        skill_evidence={"SQL": "Resolved SQL incidents for SaaS customers."},
+    )
+
+    result = score_fit(listing, profile)["requirement_fit"]
+
+    assert result["classification_counts"] == {"essential": 2, "desirable": 1, "unknown": 0}
+    assert result["requirements"][0]["evidence_status"] == "evidenced"
+    assert result["requirements"][0]["resume_evidence"][0]["resume_quote"] in profile.resume_text
+    assert result["requirements"][1]["evidence_status"] == "not_evidenced"
+    assert "unknown" in result["requirements"][1]["gap_note"]
+    assert result["requirements"][2]["classification"] == "desirable"
+
+
+def test_transferable_evidence_is_not_overclaimed_as_direct():
+    profile = Profile(
+        resume_text="Investigated production incidents and documented root causes.",
+        skill_evidence={
+            "incident investigation": (
+                "Investigated production incidents and documented root causes."
+            )
+        },
+    )
+    result = score_fit(
+        job(description="Requirements:\n- Experience investigating Kubernetes incidents"), profile
+    )["requirement_fit"]["requirements"][0]
+
+    assert result["evidence_status"] == "transferable"
+    assert result["resume_evidence"] == []
+    assert result["transferable_evidence"][0]["resume_quote"] in profile.resume_text
+    assert "do not" not in result["gap_note"].casefold()  # Contract explains, data stays concise.
+
+
+def test_requirement_without_priority_marker_is_classified_unknown():
+    result = score_fit(
+        job(description="You will help customers. Experience with OAuth integrations."), Profile()
+    )["requirement_fit"]
+
+    assert result["classification_counts"]["unknown"] == 1
+    assert result["requirements"][0]["classification"] == "unknown"
+
+
+def test_phone_on_call_and_location_constraints_are_quote_based():
+    result = score_fit(
+        job(
+            description=(
+                "You will provide inbound phone support. Join the weekend on-call rotation. "
+                "Applicants must reside in the UK and work GMT hours."
+            )
+        ),
+        Profile(),
+    )
+
+    constraints = result["operational_constraints"]
+    assert constraints["phone_support"]["status"] == "mentioned"
+    assert constraints["on_call_or_shift_work"]["status"] == "mentioned"
+    assert constraints["location_or_hours"]["status"] == "mentioned"
+    assert all(
+        signal["job_quote"]
+        for group in constraints.values()
+        for signal in group.get("evidence", [])
+    )
+    assert any("On-call" in concern for concern in result["concerns"])
+
+
+def test_writing_contract_prioritizes_requirements_over_keyword_coverage():
+    result = writing_brief("tailor_resume", job(), Profile())
+
+    assert "requirement_assessment" in result["output_requirements"]
+    assert "secondary" in result["output_requirements"]["keyword_coverage"]
