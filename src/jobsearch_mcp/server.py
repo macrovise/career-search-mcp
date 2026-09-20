@@ -9,8 +9,10 @@ from dotenv import load_dotenv
 from fastmcp import FastMCP
 from pydantic import Field
 
+from .application_packs import ApplicationPackDraft
 from .applications import application_tracking
 from .auth import auth_provider
+from .employer import verify_employer_evidence
 from .models import ExternalJobEvidence, Profile, Status, Submission
 from .reasoning import build_profile as prepare_profile
 from .reasoning import score_fit as prepare_fit
@@ -76,6 +78,11 @@ def create_server(store: Store | None = None, *, local_test: bool = False):
                     "title": job.title,
                     "company": job.company,
                     "application_tracking": application_tracking(job),
+                    "application_pack_revision": (
+                        pack.revision
+                        if (pack := store.get_application_pack(job.id)) is not None
+                        else None
+                    ),
                 }
                 for job in jobs
             ],
@@ -228,6 +235,68 @@ def create_server(store: Store | None = None, *, local_test: bool = False):
         """Read saved lifecycle changes; an unsaved live result has no saved history."""
         return service.get_history(job_id)
 
+    @mcp.tool(annotations={**READ, "openWorldHint": True}, meta=metadata)
+    async def verify_employer_job(job_id: str, employer_url: str | None = None) -> dict:
+        """Verify one saved vacancy through its exact supported public ATS API record.
+
+        Uses the supplied URL, or the saved application/listing URL. It never fetches an
+        arbitrary page, imports evidence, changes lifecycle state, or treats not-found as closed.
+        """
+        job = store.get(job_id)
+        result = await verify_employer_evidence(
+            employer_url or job.application_url or job.source_url
+        )
+        return {"job_id": job_id, **result, "persisted": False, "application_submitted": False}
+
+    @mcp.tool(annotations=READ, meta=metadata)
+    def get_discovery_changes(
+        since: datetime,
+        limit: Annotated[int, Field(ge=1, le=500)] = 100,
+    ) -> dict:
+        """Read persisted new/materially-changed watcher observations for saved job IDs."""
+        changes = store.list_watch_changes(since, limit)
+        return {"changes": changes, "count": len(changes), "limit": limit}
+
+    @mcp.tool(annotations=READ, meta=metadata)
+    def get_source_health() -> dict:
+        """Read sanitized health from the most recent persisted watcher checks."""
+        return store.get_source_health()
+
+    @mcp.tool(annotations=READ, meta=metadata)
+    def get_application_pack(job_id: str, revision: int | None = None) -> dict:
+        """Read the latest or a specific saved application-pack revision.
+
+        Only canonical persisted job IDs are accepted. Staleness flags compare the
+        saved draft's evidence basis with the current job and profile. No text is generated.
+        """
+        pack = store.get_application_pack(job_id, revision)
+        return {
+            "job_id": job_id,
+            "pack": pack.model_dump(mode="json") if pack else None,
+            "persisted": pack is not None,
+            "application_submitted": False,
+        }
+
+    @mcp.tool(annotations=WRITE, meta=metadata)
+    def save_application_pack(
+        job_id: str,
+        expected_revision: Annotated[int, Field(ge=0)],
+        pack: ApplicationPackDraft,
+    ) -> dict:
+        """Append user- or ChatGPT-authored application text for a saved exact vacancy.
+
+        expected_revision is zero for the first save and the last read revision thereafter.
+        A conflict fails rather than overwriting another agent's work. This records a draft;
+        it never changes lifecycle status, submits an application, or invents content.
+        """
+        saved = store.save_application_pack(job_id, expected_revision, pack)
+        return {
+            "pack": saved.model_dump(mode="json"),
+            "persisted": True,
+            "application_submitted": False,
+            "lifecycle_changed": False,
+        }
+
     @mcp.tool(annotations=READ, meta=metadata)
     def assess_job_evidence(evidence: ExternalJobEvidence, cv_variant: str | None = None) -> dict:
         """Assess a job from any existing plugin using the saved CV evidence.
@@ -281,6 +350,7 @@ def create_server(store: Store | None = None, *, local_test: bool = False):
             "update_status",
             "import_job_evidence",
             "mark_as_applied",
+            "save_application_pack",
         ):
             mcp.local_provider.remove_tool(name)
     return mcp

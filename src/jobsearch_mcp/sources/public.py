@@ -19,14 +19,27 @@ def response_rows(data, key: str) -> list[dict]:
 
 
 async def himalayas(query: str):
-    data = json.loads(
-        await fetch(
-            "https://himalayas.app/jobs/api/search",
-            {"q": query, "country": "GB", "sort": "recent", "page": 1},
-        )
-    )
+    # The provider's country parameter is not an acceptance guarantee and a GB-only
+    # request misses roles explicitly open worldwide. Fetch both bounded views and
+    # merge by native identity; CareerService validates every returned record again.
+    payloads = []
+    for params in (
+        {"q": query, "country": "GB", "sort": "recent", "page": 1},
+        {"q": query, "sort": "recent", "page": 1},
+    ):
+        payloads.append(json.loads(await fetch("https://himalayas.app/jobs/api/search", params)))
     jobs = []
-    for row in response_rows(data, "jobs"):
+    rows = []
+    seen = set()
+    for data in payloads:
+        for row in response_rows(data, "jobs"):
+            identity = str(row.get("guid") or row.get("id") or "")
+            if identity and identity in seen:
+                continue
+            if identity:
+                seen.add(identity)
+            rows.append(row)
+    for row in rows:
         countries = restrictions(row.get("locationRestrictions"))
         location = ", ".join(countries) or "Worldwide"
         link = row.get("guid", "")

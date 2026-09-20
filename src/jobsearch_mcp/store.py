@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from .application_packs import ApplicationPack, ApplicationPackDraft
 from .applications import SUBMITTED_STAGES
 from .models import Job, Profile, Status, Submission
 
@@ -104,7 +105,11 @@ def merge_records(old: Job, new: Job) -> Job:
             evidence[(source.source, source.source_id)] = source
     ranked = sorted(
         evidence.values(),
-        key=lambda s: (SOURCE_PRIORITY.get(s.source, 99), -s.fetched_at.timestamp()),
+        key=lambda s: (
+            0 if s.retrieval_method.upper() == "DIRECT_SITE_OR_ATS" else 1,
+            SOURCE_PRIORITY.get(s.source, 99),
+            -s.fetched_at.timestamp(),
+        ),
     )
     data = old.model_dump()
     # Rebuild selected fields from provenance, rather than depending on arrival order.
@@ -210,8 +215,338 @@ class Store:
                     company TEXT NOT NULL,
                     data TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS application_pack_versions (
+                    job_id TEXT NOT NULL REFERENCES jobs(id),
+                    revision INTEGER NOT NULL,
+                    data TEXT NOT NULL,
+                    PRIMARY KEY(job_id, revision)
+                );
+                CREATE TABLE IF NOT EXISTS watch_observations (
+                    job_id TEXT PRIMARY KEY REFERENCES jobs(id),
+                    material_hash TEXT NOT NULL,
+                    first_observed_at TEXT NOT NULL,
+                    last_observed_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS watch_changes (
+                    id INTEGER PRIMARY KEY,
+                    job_id TEXT NOT NULL REFERENCES jobs(id),
+                    state TEXT NOT NULL CHECK(state IN ('new', 'changed')),
+                    previous_hash TEXT,
+                    material_hash TEXT NOT NULL,
+                    observed_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS source_health (
+                    source TEXT PRIMARY KEY,
+                    checked_at TEXT NOT NULL,
+                    data TEXT NOT NULL
+                );
                 """
             )
+
+    @staticmethod
+    def _fingerprint(value) -> str:
+        encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+        return hashlib.sha256(encoded.encode()).hexdigest()
+
+    @classmethod
+    def _job_evidence_fingerprint(cls, job: Job) -> str:
+        def text(value) -> str:
+            return re.sub(r"\s+", " ", str(value or "")).strip()
+
+        return cls._fingerprint(
+            {
+                "title": text(job.title),
+                "company": text(job.company),
+                "location": text(job.location),
+                "remote_scope": job.remote_scope,
+                "salary": [
+                    job.salary_min,
+                    job.salary_max,
+                    job.currency,
+                    job.salary_period,
+                    job.salary_is_predicted,
+                    text(job.salary_text),
+                ],
+                "employment_type": job.employment_type,
+                "posted_at": job.posted_at.isoformat() if job.posted_at else None,
+                "source_url": canonical_url(job.source_url),
+                "application_url": canonical_url(job.application_url),
+                "description": text(job.description),
+                "skills": sorted({text(value).casefold() for value in job.skills}),
+                "country_restrictions": sorted(
+                    {text(value).casefold() for value in job.country_restrictions}
+                ),
+                "provenance": sorted(
+                    {
+                        (
+                            source.source,
+                            source.source_id,
+                            canonical_url(source.source_url),
+                            canonical_url(source.application_url),
+                            source.retrieval_method,
+                        )
+                        for source in job.sources
+                    }
+                ),
+            }
+        )
+
+    @classmethod
+    def _profile_evidence_fingerprint(cls, profile: Profile, cv_variant: str) -> str:
+        variant = profile.resume_variants[cv_variant]
+        return cls._fingerprint(
+            {
+                "cv_variant": variant.model_dump(mode="json"),
+                "verified_skills": sorted(
+                    skill
+                    for skill in profile.verified_skills
+                    if profile.skill_evidence.get(skill, "") in variant.resume_text
+                ),
+                "skill_evidence": {
+                    skill: quote
+                    for skill, quote in sorted(profile.skill_evidence.items())
+                    if quote and quote in variant.resume_text
+                },
+                "experience_evidence": sorted(
+                    quote for quote in profile.experience_evidence if quote in variant.resume_text
+                ),
+                "country": profile.country,
+                "work_authorization": profile.work_authorization,
+            }
+        )
+
+    def save_application_pack(
+        self, job_id: str, expected_revision: int, draft: ApplicationPackDraft
+    ) -> ApplicationPack:
+        """Append a version if the caller still holds the latest revision."""
+        if expected_revision < 0:
+            raise ValueError("Expected revision must be zero or greater")
+        with self.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT data FROM jobs WHERE id=?", (job_id,)).fetchone()
+            if not row:
+                raise ValueError("Unknown job ID; persist exact vacancy evidence first")
+            job = Job.model_validate_json(row[0])
+            profile_row = db.execute("SELECT data FROM profile WHERE id=1").fetchone()
+            profile = Profile.model_validate_json(profile_row[0]) if profile_row else Profile()
+            if draft.cv_variant not in profile.resume_variants:
+                raise ValueError("Unknown CV variant; save it in the canonical profile first")
+            current = db.execute(
+                "SELECT COALESCE(MAX(revision), 0) FROM application_pack_versions WHERE job_id=?",
+                (job_id,),
+            ).fetchone()[0]
+            if current != expected_revision:
+                raise ValueError(
+                    f"Application pack revision conflict: expected {expected_revision}, "
+                    f"current revision is {current}"
+                )
+            revision = current + 1
+            pack = ApplicationPack.saved(
+                draft=draft,
+                job_id=job_id,
+                revision=revision,
+                saved_at=datetime.now(UTC),
+                job_fingerprint=self._job_evidence_fingerprint(job),
+                profile_fingerprint=self._profile_evidence_fingerprint(profile, draft.cv_variant),
+            )
+            db.execute(
+                "INSERT INTO application_pack_versions(job_id,revision,data) VALUES(?,?,?)",
+                (job_id, revision, pack.model_dump_json()),
+            )
+        return pack
+
+    def get_application_pack(
+        self, job_id: str, revision: int | None = None
+    ) -> ApplicationPack | None:
+        """Read a pack revision and report drift from its saved evidence basis."""
+        job = self.get(job_id)
+        with self.connection() as db:
+            if revision is None:
+                row = db.execute(
+                    """SELECT data FROM application_pack_versions
+                    WHERE job_id=? ORDER BY revision DESC LIMIT 1""",
+                    (job_id,),
+                ).fetchone()
+            else:
+                if revision < 1:
+                    raise ValueError("Revision must be one or greater")
+                row = db.execute(
+                    "SELECT data FROM application_pack_versions WHERE job_id=? AND revision=?",
+                    (job_id, revision),
+                ).fetchone()
+        if not row:
+            return None
+        pack = ApplicationPack.model_validate_json(row[0])
+        return pack.model_copy(
+            update={
+                "job_evidence_stale": (
+                    pack.job_evidence_fingerprint != self._job_evidence_fingerprint(job)
+                ),
+                "profile_evidence_stale": (
+                    pack.profile_evidence_fingerprint
+                    != self._profile_evidence_fingerprint(self.get_profile(), pack.cv_variant)
+                ),
+            }
+        )
+
+    def record_watch_observation(
+        self, job_id: str, material_hash: str, observed_at: datetime
+    ) -> dict:
+        """Persist watcher material state without altering application lifecycle."""
+        material_hash = material_hash.strip()
+        if not material_hash or len(material_hash) > 256:
+            raise ValueError("Material hash must be 1-256 characters")
+        if observed_at.tzinfo is None:
+            raise ValueError("Observation time must include a timezone")
+        timestamp = observed_at.astimezone(UTC).isoformat()
+        with self.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if not db.execute("SELECT 1 FROM jobs WHERE id=?", (job_id,)).fetchone():
+                raise ValueError("Unknown job ID")
+            row = db.execute(
+                "SELECT material_hash FROM watch_observations WHERE job_id=?", (job_id,)
+            ).fetchone()
+            previous_hash = row[0] if row else None
+            state = (
+                "new"
+                if row is None
+                else "unchanged"
+                if previous_hash == material_hash
+                else "changed"
+            )
+            if row is None:
+                db.execute(
+                    "INSERT INTO watch_observations VALUES(?,?,?,?)",
+                    (job_id, material_hash, timestamp, timestamp),
+                )
+            else:
+                db.execute(
+                    """UPDATE watch_observations
+                    SET material_hash=?, last_observed_at=? WHERE job_id=?""",
+                    (material_hash, timestamp, job_id),
+                )
+            if state != "unchanged":
+                db.execute(
+                    """INSERT INTO watch_changes(
+                    job_id,state,previous_hash,material_hash,observed_at) VALUES(?,?,?,?,?)""",
+                    (job_id, state, previous_hash, material_hash, timestamp),
+                )
+        return {
+            "job_id": job_id,
+            "state": state,
+            "previous_hash": previous_hash,
+            "material_hash": material_hash,
+            "observed_at": timestamp,
+        }
+
+    def list_watch_changes(self, since: datetime, limit: int = 100) -> list[dict]:
+        """Return bounded, actionable saved-job changes after an aware timestamp."""
+        if since.tzinfo is None:
+            raise ValueError("Since time must include a timezone")
+        with self.connection() as db:
+            db.row_factory = sqlite3.Row
+            rows = db.execute(
+                """SELECT c.job_id,c.state,c.previous_hash,c.material_hash,c.observed_at,
+                json_extract(j.data, '$.title') AS title,
+                json_extract(j.data, '$.company') AS company
+                FROM watch_changes c JOIN jobs j ON j.id=c.job_id
+                WHERE c.observed_at>? ORDER BY c.observed_at,c.id LIMIT ?""",
+                (since.astimezone(UTC).isoformat(), max(1, min(limit, 500))),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def record_source_health(self, checked_at: datetime, source_status: dict) -> dict:
+        """Retain sanitized latest watcher health; never persist raw errors or URLs."""
+        if checked_at.tzinfo is None:
+            raise ValueError("Health check time must include a timezone")
+        timestamp = checked_at.astimezone(UTC).isoformat()
+        records = []
+        for source, item in source_status.items():
+            if not re.fullmatch(r"[a-z0-9_-]{1,100}", source):
+                raise ValueError("Invalid source name")
+            execution = item.get("execution")
+            if execution not in {"success", "zero_results", "failure", "cached"}:
+                raise ValueError("Invalid source execution state")
+            fetched_at = item.get("fetched_at")
+            if fetched_at:
+                parsed = datetime.fromisoformat(str(fetched_at).replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    raise ValueError("Source fetch time must include a timezone")
+                fetched_at = parsed.astimezone(UTC).isoformat()
+            error_type = item.get("error_type")
+            if error_type and not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]{0,199}", str(error_type)):
+                error_type = "SourceError"
+            rejections = item.get("validation_rejections") or {}
+            sanitized_rejections = {
+                str(reason)[:100]: max(0, int(count))
+                for reason, count in rejections.items()
+                if isinstance(count, int | float)
+            }
+            http_observations = []
+            raw_http = item.get("http") or []
+            if isinstance(raw_http, dict):
+                raw_http = [raw_http]
+            for observation in raw_http[:10]:
+                code = observation.get("http_code")
+                outcome = observation.get("outcome")
+                observed_at = observation.get("fetched_at") or observation.get("checked_at")
+                if not isinstance(code, int) or not 100 <= code <= 599:
+                    continue
+                if outcome not in {"SUCCESS", "HTTP_ERROR"} or not observed_at:
+                    continue
+                parsed_at = datetime.fromisoformat(str(observed_at).replace("Z", "+00:00"))
+                if parsed_at.tzinfo is None:
+                    continue
+                http_observations.append(
+                    {
+                        "http_code": code,
+                        "outcome": outcome,
+                        "checked_at": parsed_at.astimezone(UTC).isoformat(),
+                    }
+                )
+            record = {
+                "source": source,
+                "execution": execution,
+                "count": max(0, int(item.get("count", 0))),
+                "retrieved_count": max(0, int(item.get("retrieved_count", 0))),
+                "query_filtered_count": max(0, int(item.get("query_filtered_count", 0))),
+                "cached": bool(item.get("cached", execution == "cached")),
+                "error_type": str(error_type) if error_type else None,
+                "fetched_at": fetched_at,
+                "validation_rejections": sanitized_rejections,
+                "http_codes": sorted(
+                    {observation["http_code"] for observation in http_observations}
+                ),
+                "http_checked_at": max(
+                    (observation["checked_at"] for observation in http_observations),
+                    default=None,
+                ),
+                "checked_at": timestamp,
+            }
+            records.append((source, timestamp, json.dumps(record, sort_keys=True)))
+        with self.connection() as db:
+            db.executemany(
+                """INSERT INTO source_health VALUES(?,?,?)
+                ON CONFLICT(source) DO UPDATE SET
+                checked_at=excluded.checked_at,data=excluded.data""",
+                records,
+            )
+        return self.get_source_health()
+
+    def get_source_health(self) -> dict:
+        with self.connection() as db:
+            rows = db.execute("SELECT data FROM source_health ORDER BY source").fetchall()
+        sources = [json.loads(row[0]) for row in rows]
+        return {
+            "sources": sources,
+            "summary": {
+                "success": sum(item["execution"] == "success" for item in sources),
+                "zero_results": sum(item["execution"] == "zero_results" for item in sources),
+                "failure": sum(item["execution"] == "failure" for item in sources),
+                "cached": sum(item["execution"] == "cached" for item in sources),
+            },
+            "latest_checked_at": max((item["checked_at"] for item in sources), default=None),
+        }
 
     @contextmanager
     def connection(self):

@@ -1,17 +1,22 @@
 """Discovery orchestration shared by MCP and watcher."""
 
 import asyncio
+import hashlib
+import json
 import os
+import re
 import time
 from datetime import UTC, datetime
 
+from .applications import SUBMITTED_STAGES
+from .http import capture_receipts
 from .live import JobBatch, LiveResults
 from .models import Job
 from .reasoning import score_fit
-from .relevance import query_evidence
+from .relevance import discovery_validation, query_evidence
 from .reporting import job_result
 from .sources import public, scout
-from .store import Store
+from .store import Store, canonical_url
 
 ADAPTERS = {
     "himalayas": public.himalayas,
@@ -30,6 +35,63 @@ CACHE_SECONDS = {
     "scout": 3600,
 }
 
+MATERIAL_FIELDS = (
+    "title",
+    "company",
+    "location",
+    "remote_scope",
+    "salary_min",
+    "salary_max",
+    "currency",
+    "salary_period",
+    "salary_is_predicted",
+    "salary_text",
+    "employment_type",
+    "posted_at",
+    "source_url",
+    "application_url",
+    "description",
+    "skills",
+    "country_restrictions",
+)
+
+
+def materially_changed(previous: Job, current: Job) -> bool:
+    """Ignore observation timestamps and lifecycle while detecting listing changes."""
+    return any(getattr(previous, field) != getattr(current, field) for field in MATERIAL_FIELDS)
+
+
+def material_hash(job: Job) -> str:
+    payload = {}
+    for field in MATERIAL_FIELDS:
+        value = getattr(job, field)
+        if field in {"source_url", "application_url"}:
+            value = canonical_url(value) or value.strip()
+        elif field in {"skills", "country_restrictions"}:
+            value = sorted({re.sub(r"\s+", " ", str(item)).strip().casefold() for item in value})
+        elif isinstance(value, str):
+            value = re.sub(r"\s+", " ", value).strip()
+        elif isinstance(value, datetime):
+            value = value.astimezone(UTC).isoformat()
+        payload[field] = value
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def source_health(status: dict) -> dict:
+    """Compact evidence of real adapter executions, including honest zero results."""
+    executions = list(status.values())
+    return {
+        "successes": sum(item["execution"] == "success" for item in executions),
+        "zero_results": sum(item["execution"] == "zero_results" for item in executions),
+        "failures": sum(item["execution"] == "failure" for item in executions),
+        "cached": sum(bool(item["cached"]) for item in executions),
+        "latest_fetched_at": max(
+            (item["fetched_at"] for item in executions if item["fetched_at"]), default=None
+        ),
+    }
+
 
 def enabled_sources():
     names = os.getenv("CAREER_SOURCES", "himalayas,remotive,jobicy,weworkremotely").split(",")
@@ -45,7 +107,13 @@ class CareerService:
         self.lock = asyncio.Lock()
         self.live_results = LiveResults()
 
-    async def discover(self, query: str, sources: list[str] | None = None) -> dict:
+    async def discover(
+        self,
+        query: str,
+        sources: list[str] | None = None,
+        *,
+        track_watch: bool = False,
+    ) -> dict:
         sources = sources or enabled_sources()
         if set(sources) - set(ADAPTERS):
             raise ValueError("Unknown source")
@@ -57,26 +125,79 @@ class CareerService:
             results = await asyncio.gather(
                 *(self._collect(name, query, use_cache=True) for name in sources)
             )
-            found, report = {}, {}
-            for name, jobs, cached, error, fetched_at in results:
+            found, report, changes = (
+                {},
+                {},
+                {
+                    "new": set(),
+                    "changed": set(),
+                    "unchanged": set(),
+                    "applied_seen": set(),
+                },
+            )
+            for name, jobs, cached, error, fetched_at, receipts in results:
                 retrieved_count = len(jobs)
-                jobs = [job for job in jobs if query_evidence(job, query)["matches"]]
+                validations = [
+                    discovery_validation(job, query, profile.preferences, name) for job in jobs
+                ]
+                accepted = [
+                    job
+                    for job, validation in zip(jobs, validations, strict=True)
+                    if validation["accepted"]
+                ]
+                rejected = [v for v in validations if not v["accepted"]]
+                jobs = accepted
                 report[name] = {
                     "status": "error" if error else "ok",
+                    "execution": (
+                        "cached"
+                        if cached
+                        else (
+                            "failure"
+                            if error
+                            else ("success" if retrieved_count else "zero_results")
+                        )
+                    ),
                     "count": len(jobs),
                     "retrieved_count": retrieved_count,
                     "query_filtered_count": retrieved_count - len(jobs),
+                    "validation_rejections": {
+                        reason: sum(reason in item["rejection_reasons"] for item in rejected)
+                        for reason in sorted(
+                            {r for item in rejected for r in item["rejection_reasons"]}
+                        )
+                    },
                     "cached": cached,
                     "error_type": error,
                     "fetched_at": fetched_at,
+                    "http": receipts,
                 }
                 for job in jobs:
                     try:
+                        previous = self.store.find_match(job)
                         record = self.store.upsert(job)
                     except ValueError:
                         report[name].setdefault("records_requiring_review", 0)
                         report[name]["records_requiring_review"] += 1
                         continue
+                    if track_watch:
+                        observation = self.store.record_watch_observation(
+                            record.id, material_hash(record), datetime.now(UTC)
+                        )
+                        state = observation["state"]
+                    else:
+                        state = (
+                            "new"
+                            if previous is None
+                            else (
+                                "changed" if materially_changed(previous, record) else "unchanged"
+                            )
+                        )
+                    if previous is not None and (
+                        previous.submission is not None or previous.status in SUBMITTED_STAGES
+                    ):
+                        state = "applied_seen"
+                    changes[state].add(record.id)
                     found[record.id] = record
             items = []
             excluded = []
@@ -87,11 +208,17 @@ class CareerService:
                 self.store.save_evidence(job.id, job.match_evidence, job.eligibility)
                 item = job_result(job, profile, compact=True)
                 item["query_evidence"] = query_evidence(job, query)
+                item["discovery_state"] = next(
+                    state for state, job_ids in changes.items() if job.id in job_ids
+                )
                 (excluded if job.match_evidence["exclusions"] else items).append(item)
             return {
                 "jobs": items,
                 "excluded_jobs": excluded,
                 "source_status": report,
+                "source_health": source_health(report),
+                "discovery_changes": {name: len(ids) for name, ids in changes.items()},
+                "discovery_change_ids": {name: sorted(ids) for name, ids in changes.items()},
                 "searched_at": datetime.now(UTC).isoformat(),
                 "coverage": (
                     "Bounded first-page searches; source failures are not empty "
@@ -112,9 +239,10 @@ class CareerService:
             if cached is not None:
                 jobs = [Job.model_validate(j) for j in cached]
                 fetched = max((e.fetched_at for j in jobs for e in j.sources), default=None)
-                return name, jobs, True, None, fetched.isoformat() if fetched else None
+                return name, jobs, True, None, fetched.isoformat() if fetched else None, []
         try:
-            jobs = await asyncio.wait_for(ADAPTERS[name](source_query), timeout=60)
+            with capture_receipts() as receipts:
+                jobs = await asyncio.wait_for(ADAPTERS[name](source_query), timeout=60)
             fetched_at = datetime.now(UTC).isoformat()
             if use_cache:
                 self.store.cache_set(
@@ -122,11 +250,11 @@ class CareerService:
                     [j.model_dump(mode="json") for j in jobs],
                     time.time() + CACHE_SECONDS[name],
                 )
-            return name, jobs, False, None, fetched_at
+            return name, jobs, False, None, fetched_at, receipts
         except Exception as exc:
             # Exception strings may contain credential-bearing URLs. Never return
             # them, and never replace a provider failure with stale saved results.
-            return name, [], False, type(exc).__name__, None
+            return name, [], False, type(exc).__name__, None, receipts
 
     async def search_live(
         self, query: str, sources: list[str] | None = None, limit: int = 25
@@ -148,17 +276,42 @@ class CareerService:
                 *(self._collect(name, query, use_cache=False) for name in sources)
             )
             batch, report = JobBatch(), {}
-            for name, jobs, cached, error, fetched_at in results:
+            for name, jobs, cached, error, fetched_at, receipts in results:
                 retrieved_count = len(jobs)
-                jobs = [job for job in jobs if query_evidence(job, query)["matches"]]
+                validations = [
+                    discovery_validation(job, query, profile.preferences, name) for job in jobs
+                ]
+                accepted = [
+                    job
+                    for job, validation in zip(jobs, validations, strict=True)
+                    if validation["accepted"]
+                ]
+                rejected = [v for v in validations if not v["accepted"]]
+                jobs = accepted
                 report[name] = {
                     "status": "error" if error else "ok",
+                    "execution": (
+                        "cached"
+                        if cached
+                        else (
+                            "failure"
+                            if error
+                            else ("success" if retrieved_count else "zero_results")
+                        )
+                    ),
                     "count": len(jobs),
                     "retrieved_count": retrieved_count,
                     "query_filtered_count": retrieved_count - len(jobs),
+                    "validation_rejections": {
+                        reason: sum(reason in item["rejection_reasons"] for item in rejected)
+                        for reason in sorted(
+                            {r for item in rejected for r in item["rejection_reasons"]}
+                        )
+                    },
                     "cached": cached,
                     "error_type": error,
                     "fetched_at": fetched_at,
+                    "http": receipts,
                 }
                 for job in jobs:
                     try:
@@ -206,6 +359,7 @@ class CareerService:
                 "jobs": items,
                 "excluded_jobs": excluded,
                 "source_status": report,
+                "source_health": source_health(report),
                 "searched_at": searched_at,
                 "completed_at": datetime.now(UTC).isoformat(),
                 "total_count": len(candidates),

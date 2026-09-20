@@ -56,7 +56,11 @@ async def test_himalayas_normalizes_timestamp_countries_and_unknown_salary(monke
         (
             "https://himalayas.app/jobs/api/search",
             {"q": "technical support", "country": "GB", "sort": "recent", "page": 1},
-        )
+        ),
+        (
+            "https://himalayas.app/jobs/api/search",
+            {"q": "technical support", "sort": "recent", "page": 1},
+        ),
     ]
     assert len(jobs) == 1
     job = jobs[0]
