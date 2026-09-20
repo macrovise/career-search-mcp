@@ -1,12 +1,14 @@
 """Regression coverage for uncached, non-persisting live search."""
 
 import time
+from datetime import UTC, datetime
 
 import pytest
 from fastmcp import Client
 
 from jobsearch_mcp import service as service_module
-from jobsearch_mcp.models import Job, Status
+from jobsearch_mcp.models import Job, Profile, Status, Submission
+from jobsearch_mcp.reasoning import score_fit
 from jobsearch_mcp.server import create_server
 from jobsearch_mcp.service import CareerService
 from jobsearch_mcp.sources.normalize import make_job
@@ -254,15 +256,47 @@ async def test_live_match_preserves_saved_lifecycle_but_uses_fresh_content(tmp_p
     monkeypatch.setitem(service_module.ADAPTERS, "remotive", remotive)
     service = CareerService(store)
     result = await service.search_live("Support Engineer")
-    live = result["jobs"][0]
+    assert result["jobs"] == []
+    assert len(result["excluded_jobs"]) == 1
+    live = result["excluded_jobs"][0]
     assert live["saved_job_id"] == saved.id
     assert live["status"] == "interview"
     assert live["salary_min"] == 55000
+    assert live["application_tracking"]["exclude_from_discovery"] is True
     assert service.get_job(live["id"]).salary_min == 55000
     assert service.get_history(live["id"])[-1]["new_status"] == "interview"
     with store.connection() as db:
         assert list(db.iterdump()) == before
     assert store.get(saved.id).salary_min == 45000
+
+
+async def test_live_reference_picks_up_submission_saved_after_search(tmp_path, monkeypatch):
+    monkeypatch.setenv("CAREER_SOURCES", "remotive")
+    store = Store(str(tmp_path / "late-save.sqlite3"))
+
+    async def remotive(query):
+        return [_job("remotive", "saved-later")]
+
+    monkeypatch.setitem(service_module.ADAPTERS, "remotive", remotive)
+    service = CareerService(store)
+    live = (await service.search_live("Support Engineer"))["jobs"][0]
+
+    saved = store.upsert(_job("remotive", "saved-later"))
+    store.mark_as_applied(
+        saved.id,
+        Submission(
+            confirmed=True,
+            recorded_at=datetime.now(UTC),
+            evidence="User confirmed submitting after live search",
+            evidence_source="user_confirmation",
+        ),
+    )
+
+    refreshed = service.get_job(live["id"])
+    assert refreshed.submission is not None
+    assert refreshed.submission.evidence == "User confirmed submitting after live search"
+    evidence = score_fit(refreshed, Profile())
+    assert evidence["application_tracking"]["exclude_from_discovery"] is True
 
 
 async def test_every_live_request_fetches_again_and_old_references_keep_their_snapshot(

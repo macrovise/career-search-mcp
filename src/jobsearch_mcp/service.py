@@ -190,7 +190,9 @@ class CareerService:
                     # Preserve the user's lifecycle in the response without mixing
                     # older saved source content into a fresh provider snapshot.
                     job.status = saved.status
+                    job.submission = saved.submission
                     job.follow_up_at = saved.follow_up_at
+                job.unresolved_applications = self.store.application_review(job.company)
                 job = self.live_results.add(job, saved_job_id)
                 job.match_evidence = score_fit(job, profile)
                 job.eligibility = job.match_evidence["location_eligibility"]
@@ -230,14 +232,19 @@ class CareerService:
     def get_job(self, job_id: str) -> Job:
         if job_id.startswith("live:"):
             job, saved_job_id = self.live_results.resolve(job_id)
-            if saved_job_id:
-                saved = self.store.get(saved_job_id)
+            saved = self.store.get(saved_job_id) if saved_job_id else self.store.find_match(job)
+            if saved:
                 job.status, job.follow_up_at = saved.status, saved.follow_up_at
+                job.submission = saved.submission
+            job.unresolved_applications = self.store.application_review(job.company)
             return job
-        return self.store.get(job_id)
+        job = self.store.get(job_id)
+        job.unresolved_applications = self.store.application_review(job.company)
+        return job
 
     def get_history(self, job_id: str) -> list[dict]:
         if job_id.startswith("live:"):
-            _, saved_job_id = self.live_results.resolve(job_id)
-            return self.store.history(saved_job_id) if saved_job_id else []
+            job, saved_job_id = self.live_results.resolve(job_id)
+            saved = self.store.get(saved_job_id) if saved_job_id else self.store.find_match(job)
+            return self.store.history(saved.id) if saved else []
         return self.store.history(job_id)

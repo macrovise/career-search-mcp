@@ -3,6 +3,7 @@
 import re
 from datetime import UTC, datetime
 
+from .applications import application_tracking
 from .models import Job, Profile
 
 GUIDANCE = (
@@ -42,6 +43,7 @@ def build_profile(raw_text: str) -> dict:
 
 def score_fit(job: Job, profile: Profile, now: datetime | None = None) -> dict:
     now = now or datetime.now(UTC)
+    tracking = application_tracking(job)
     prefs = profile.preferences
     text = job.title + "\n" + job.description
     keywords = [skill for skill in prefs.positive_skills if mentions(text, skill)]
@@ -75,6 +77,8 @@ def score_fit(job: Job, profile: Profile, now: datetime | None = None) -> dict:
         if skill.casefold() not in verified
     ]
     exclusions, concerns, positives = [], [], []
+    if job.unresolved_applications:
+        concerns.append("Prior application at this company needs exact requisition reconciliation")
     if any(mentions(job.title, role) for role in prefs.target_roles):
         positives.append("Title matches a target role")
     else:
@@ -140,7 +144,10 @@ def score_fit(job: Job, profile: Profile, now: datetime | None = None) -> dict:
         concerns.append("Posting older than preferred recency window")
     if job.conflicts:
         concerns.append("Sources disagree; inspect conflicting evidence")
+    if tracking["exclude_from_discovery"]:
+        exclusions.append("Application already submitted; tracking only")
     return {
+        "application_tracking": tracking,
         "reasoning_owner": "ChatGPT",
         "instructions": GUIDANCE,
         "job_id": job.id,

@@ -63,7 +63,15 @@ async def test_read_only_surface_searches_without_writes(tmp_path, monkeypatch):
         tools = {t.name: t for t in await client.list_tools()}
         assert all(tool.annotations.readOnlyHint for tool in tools.values())
         assert {"build_profile", "score_fit", "tailor_resume", "cover_letter_brief"} <= tools.keys()
-        assert not {"search_jobs", "save_profile", "update_status"} & tools.keys()
+        assert (
+            not {
+                "search_jobs",
+                "save_profile",
+                "update_status",
+                "mark_as_applied",
+            }
+            & tools.keys()
+        )
         result = await client.call_tool("search_saved_jobs", {"query": "SUPPORT sql"})
         assert len(result.data["jobs"]) == len(result.data["excluded_jobs"]) == 1
         assert result.data["persisted"] is False
@@ -73,6 +81,15 @@ async def test_read_only_surface_searches_without_writes(tmp_path, monkeypatch):
             "search_jobs": {"query": "Support"},
             "save_profile": {"profile": {}},
             "update_status": {"job_id": "x", "status": "applied", "reason": "test"},
+            "mark_as_applied": {
+                "job_id": "x",
+                "confirmation": {
+                    "confirmed": True,
+                    "recorded_at": "2026-09-19T12:00:00Z",
+                    "evidence": "User confirmed submission",
+                    "evidence_source": "user_confirmation",
+                },
+            },
         }.items():
             result = await client.call_tool(name, arguments, raise_on_error=False)
             assert result.is_error

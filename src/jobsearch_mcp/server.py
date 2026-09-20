@@ -1,7 +1,7 @@
 """Entry point: authenticate, open persistence, then register evidence and tracking tools."""
 
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -10,7 +10,7 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 from .auth import auth_provider
-from .models import ExternalJobEvidence, Profile, Status
+from .models import ExternalJobEvidence, Profile, Status, Submission
 from .reasoning import build_profile as prepare_profile
 from .reasoning import score_fit as prepare_fit
 from .reasoning import writing_brief
@@ -86,6 +86,7 @@ def create_server(store: Store | None = None, *, local_test: bool = False):
         profile = store.get_profile()
         jobs, excluded = [], []
         for job in store.search_jobs(query, status, limit, offset):
+            job.unresolved_applications = store.application_review(job.company)
             job.match_evidence = prepare_fit(job, profile)
             job.eligibility = job.match_evidence["location_eligibility"]
             item = job_result(job, profile, compact=True)
@@ -157,6 +158,16 @@ def create_server(store: Store | None = None, *, local_test: bool = False):
         return {**writing_brief("cover_letter_brief", job, profile), **role_fields(job, profile)}
 
     @mcp.tool(annotations=WRITE, meta=metadata)
+    def mark_as_applied(job_id: str, confirmation: Submission) -> dict:
+        """Record an explicitly confirmed past submission, not submit an application.
+
+        Requires a persisted exact vacancy and affirmative user/confirmation evidence.
+        Unavailable in read-only mode. Returns persisted evidence for verification.
+        """
+        confirmation = confirmation.model_copy(update={"recorded_at": datetime.now(UTC)})
+        return job_result(store.mark_as_applied(job_id, confirmation), store.get_profile())
+
+    @mcp.tool(annotations=WRITE, meta=metadata)
     def update_status(
         job_id: str,
         status: Status,
@@ -191,9 +202,11 @@ def create_server(store: Store | None = None, *, local_test: bool = False):
         Returns the same five role fields and a portable handoff snapshot.
         """
         job = portable_job(evidence)
+        job.unresolved_applications = store.application_review(job.company)
         saved = store.find_match(job)
         if saved:
             job.status, job.follow_up_at = saved.status, saved.follow_up_at
+            job.submission = saved.submission
         job = service.live_results.add(job, saved.id if saved else None)
         result = job_result(job, store.get_profile())
         result.update(role_fields(job, store.get_profile(), cv_variant))
@@ -227,7 +240,13 @@ def create_server(store: Store | None = None, *, local_test: bool = False):
     if read_only_setting == "true":
         # Remove the actual handlers, not just their display metadata. The watcher
         # continues discovery independently; ChatGPT cannot invoke these writes.
-        for name in ("search_jobs", "save_profile", "update_status", "import_job_evidence"):
+        for name in (
+            "search_jobs",
+            "save_profile",
+            "update_status",
+            "import_job_evidence",
+            "mark_as_applied",
+        ):
             mcp.local_provider.remove_tool(name)
     return mcp
 

@@ -48,6 +48,17 @@ class Status(StrEnum):
     CLOSED = "closed"
 
 
+class Submission(BaseModel):
+    """Explicit submission evidence, independent of later workflow status."""
+
+    model_config = ConfigDict(extra="forbid")
+    confirmed: Literal[True]
+    submitted_at: AwareDatetime | None = None
+    recorded_at: AwareDatetime
+    evidence: str = Field(min_length=1, max_length=2000)
+    evidence_source: Literal["user_confirmation", "confirmation_record", "legacy_application_state"]
+
+
 class SourceEvidence(BaseModel):
     source: str
     source_id: str
@@ -56,6 +67,7 @@ class SourceEvidence(BaseModel):
     fetched_at: datetime
     fields: dict = Field(default_factory=dict)
     http_checks: list[HttpObservation] = Field(default_factory=list, max_length=10)
+
     retrieval_method: str = "provider_adapter"
 
 
@@ -92,6 +104,8 @@ class Job(BaseModel):
     eligibility: dict = Field(default_factory=lambda: {"status": "unknown"})
     match_evidence: dict = Field(default_factory=dict)
     status: Status = Status.DISCOVERED
+    submission: Submission | None = None
+    unresolved_applications: list[dict] = Field(default_factory=list)
     first_seen: datetime | None = None
     last_seen: datetime | None = None
     follow_up_at: datetime | None = None

@@ -7,6 +7,7 @@ remain attributed to that agent. Numeric scores describe keyword coverage only.
 import hashlib
 import re
 
+from .applications import application_tracking
 from .models import ExternalJobEvidence, Job, Profile
 from .reasoning import excerpt, mentions, score_fit
 from .sources.normalize import make_job
@@ -143,6 +144,7 @@ def role_fields(job: Job, profile: Profile, cv_variant: str | None = None) -> di
         ],
     }
     return {
+        "application_tracking": application_tracking(job),
         "http_status": {
             "checks": checks,
             "evidence_origin": "caller_reported_or_not_checked",

@@ -14,7 +14,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from .models import Job, Profile, Status
+from .applications import SUBMITTED_STAGES
+from .models import Job, Profile, Status, Submission
 
 SOURCE_PRIORITY = {
     "himalayas": 0,
@@ -31,14 +32,19 @@ def canonical_url(url: str) -> str:
     p = urlsplit(url.strip())
     if p.scheme not in {"https", "http"} or not p.hostname:
         return ""
+    path = p.path.rstrip("/")
+    # Ashby's job and application pages identify the same exact requisition.
+    # Do not strip generic '/application' paths on unrelated hosts.
+    if p.hostname.lower() == "jobs.ashbyhq.com" and re.fullmatch(
+        r"/[^/]+/[0-9a-fA-F-]{36}/application", path
+    ):
+        path = path.removesuffix("/application")
     query = [
         (k, v)
         for k, v in parse_qsl(p.query)
         if not k.lower().startswith("utm_") and k not in TRACKING_KEYS
     ]
-    return urlunsplit(
-        (p.scheme.lower(), p.netloc.lower(), p.path.rstrip("/"), urlencode(sorted(query)), "")
-    )
+    return urlunsplit((p.scheme.lower(), p.netloc.lower(), path, urlencode(sorted(query)), ""))
 
 
 def normalized(text: str) -> str:
@@ -199,6 +205,11 @@ class Store:
                     expires REAL NOT NULL,
                     data TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS application_review (
+                    id TEXT PRIMARY KEY,
+                    company TEXT NOT NULL,
+                    data TEXT NOT NULL
+                );
                 """
             )
 
@@ -304,6 +315,91 @@ class Store:
             ).fetchall()
         return [Job.model_validate_json(row[0]) for row in rows]
 
+    def import_application_review(self, records: list[dict]) -> int:
+        """Retain confirmed history lacking an exact requisition; never suppress a company."""
+        validated = []
+        for record in records:
+            if not record.get("company") or not record.get("evidence_of_actual_submission"):
+                raise ValueError("Unlinked history requires company and submission evidence")
+            encoded = json.dumps(record, sort_keys=True)
+            if len(encoded) > 10000:
+                raise ValueError("Unlinked history record too large")
+            validated.append(
+                (
+                    hashlib.sha256(encoded.encode()).hexdigest(),
+                    normalized(record["company"]),
+                    encoded,
+                )
+            )
+        with self.connection() as db:
+            db.executemany("INSERT OR IGNORE INTO application_review VALUES(?,?,?)", validated)
+        return len(validated)
+
+    def application_review(self, company: str) -> list[dict]:
+        with self.connection() as db:
+            rows = db.execute(
+                "SELECT data FROM application_review WHERE company=?", (normalized(company),)
+            ).fetchall()
+        return [json.loads(row[0]) for row in rows]
+
+    def mark_as_applied(self, job_id: str, submission: Submission) -> Job:
+        """Record confirmation once, atomically; retries never regress later stages."""
+        with self.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT data FROM jobs WHERE id=?", (job_id,)).fetchone()
+            if not row:
+                raise ValueError("Unknown job ID; import exact vacancy evidence first")
+            job = Job.model_validate_json(row[0])
+            if job.submission:
+                return job
+            old_status = job.status
+            job.submission = submission
+            if job.status not in SUBMITTED_STAGES | {
+                Status.REJECTED,
+                Status.WITHDRAWN,
+                Status.CLOSED,
+            }:
+                job.status = Status.APPLIED
+            db.execute(
+                "INSERT INTO events(job_id,at,old_status,new_status,reason) VALUES(?,?,?,?,?)",
+                (
+                    job.id,
+                    submission.recorded_at.isoformat(),
+                    old_status.value,
+                    job.status.value,
+                    "Submission confirmed: " + submission.evidence,
+                ),
+            )
+            db.execute("UPDATE jobs SET data=? WHERE id=?", (job.model_dump_json(), job.id))
+        return job
+
+    def migrate_submissions(self) -> int:
+        """Preserve recorded legacy submission history, without guessing submission dates."""
+        count = 0
+        with self.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            for job_id, data in db.execute("SELECT id,data FROM jobs").fetchall():
+                job = Job.model_validate_json(data)
+                if job.submission:
+                    continue
+                history = db.execute(
+                    "SELECT at,new_status,reason FROM events WHERE job_id=? ORDER BY id", (job_id,)
+                ).fetchall()
+                evidence = next((r for r in history if r[1] in SUBMITTED_STAGES), None)
+                if evidence is None:
+                    continue
+                job.submission = Submission(
+                    confirmed=True,
+                    recorded_at=datetime.now(UTC),
+                    evidence=(
+                        f"Existing lifecycle record {evidence[0]}: {evidence[1]}; {evidence[2]}"
+                    )[:2000],
+                    evidence_source="legacy_application_state",
+                )
+                db.execute("UPDATE jobs SET data=? WHERE id=?", (job.model_dump_json(), job_id))
+                count += 1
+        return count
+
     def update_status(
         self, job_id: str, status: Status, reason: str, follow_up_at: datetime | None = None
     ) -> Job:
@@ -320,6 +416,13 @@ class Store:
                 (job.id, datetime.now(UTC).isoformat(), job.status.value, status.value, reason),
             )
             job.status = status
+            if status in SUBMITTED_STAGES and job.submission is None:
+                job.submission = Submission(
+                    confirmed=True,
+                    recorded_at=datetime.now(UTC),
+                    evidence=reason,
+                    evidence_source="legacy_application_state",
+                )
             job.follow_up_at = follow_up_at
             db.execute("UPDATE jobs SET data=? WHERE id=?", (job.model_dump_json(), job.id))
         return job
