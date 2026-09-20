@@ -4,7 +4,7 @@
 
 See [Shared Career agent contract v1](agent-integration.md) for the new five-field result
 contract, two CV variants, plugin evidence assessment, portable handoff and host-only
-admin writes. The current code exposes 12 read-only tools and 16 tools in full mode.
+admin writes. The current code exposes 12 read-only tools and 17 tools in full mode.
 `import_job_evidence` is a write and is removed in read-only mode. The older transport
 and deployment notes below describe the original 10/13-tool release.
 
@@ -212,3 +212,10 @@ JSON argument template matching the live `scout_discover` schema. It replaces on
 `{query}` placeholder, rejects external JSON Schema references, and never calls `scout_score`.
 Recognized structured JSON result fields are normalized; unrecognized formats fail explicitly.
 Default configuration leaves it disabled. Do not copy ChatGPT-managed tokens into the watcher.
+
+## Submission register
+
+See [Shared application register](application-register.md). Confirmed submission evidence
+is retained independently of lifecycle status and excludes a vacancy from discovery and
+new preparation. Existing read tools expose application_tracking. Full mode adds the
+mark_as_applied write; the deployed read-only surface stays at 12 tools.

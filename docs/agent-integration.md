@@ -125,7 +125,7 @@ No CV uploads or employer messages are needed for this workflow.
 
 The deployed read-only MCP exposes 12 tools. `import_job_evidence`, `save_profile`,
 `search_jobs` and `update_status` are absent and uncallable. Never relabel writes as reads.
-The full interface exposes 16 tools for a separately authorised write-capable client.
+The full interface exposes 17 tools for a separately authorised write-capable client.
 
 An authenticated administrator can use the existing SSH route, without enabling public
 ports or changing the read-only tunnel:
@@ -145,3 +145,11 @@ Older source snapshots cannot overwrite newer snapshots from the same provider i
 This administrative route is implemented; it is not an unattended ChatGPT-to-AWS bridge.
 Automatic Library/MCP synchronisation requires a verified authorised writer. Current
 instructions must explicitly report a missing write capability rather than bypass it.
+
+## Shared submitted-application check
+
+Use `application_tracking` from Career Search as the shared recorded submission check.
+See [application register](application-register.md) for the Mark as applied action,
+confirmed imports and exact read-only limitations. A Library seen record alone never
+means applied. Reconcile confirmed Library submissions through the authenticated admin
+route; until reconciled, either source confirming submission suppresses new preparation.
