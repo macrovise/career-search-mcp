@@ -71,7 +71,35 @@ metadata alongside the evidence in the report or portable handoff envelope. Reas
 must retain the measured retrieval time. Without a reliable observation or source time,
 report UNAVAILABLE rather than inventing one.
 
-## Controlled writes
+## Shared role presentation and tool execution
+
+Both agents use the same readable role layout: company/title with a link, a short
+verdict, fit and gaps, and a separate evidence table for every reported role:
+
+| Required field | Result |
+| --- | --- |
+| HTTP Status | Observed code with evidence, or NOT_CHECKED |
+| Eligibility / Compatibility | Employment, salary, remote scope and unresolved country restrictions |
+| ATS Score — estimated CV keyword coverage | Value, matched/detected counts, CV variant and limitations |
+| Fetched_at | Original source or caller-observed response receipt time, with timezone |
+| Source | Provider, retrieval method and original listing link |
+
+Do not compress these rows into prose. Keyword coverage is not an employer ATS
+score or an overall suitability rating; incidental terms in links can affect it.
+Review the full description for actual requirements and gaps.
+
+Call `score_fit` for assessed shortlisted roles. Application preparation also calls
+`tailor_resume` and `cover_letter_brief`, then uses their returned evidence for
+specific truthful suggestions. A tool's presence is not evidence it executed.
+Worldwide discovery uses portable evidence for handoff and does not submit applications.
+
+Run independent accessible connector searches concurrently after any prerequisites.
+Dependent detail retrieval and assessment follow their inputs. Report each provider
+as successful, zero results, unavailable, blocked, or failed. Preserve existing plugins
+alongside Career Search; never claim a connector ran merely because its adapter exists.
+No CV uploads or employer messages are needed for this workflow.
+
+## Controlled write access
 
 The deployed read-only MCP exposes 12 tools. `import_job_evidence`, `save_profile`,
 `search_jobs` and `update_status` are absent and uncallable. Never relabel writes as reads.
