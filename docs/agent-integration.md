@@ -42,8 +42,12 @@ quotes against each CV. It returns evidence briefs, not edited PDF files.
    `cover_letter_brief` on the returned ID. Read the full description before ranking.
 5. Use `prepare_handoff(job_id)` to export every source snapshot. The envelope carries
    stable URL/requisition evidence, a handoff key and any existing saved ID. The key is
-   a reference, not proof of deduplication or persistence. Live IDs expire after 15 minutes.
-   Re-assess the preserved evidence when a live ID expires, keeping its original timestamps.
+   a reference, not proof of deduplication or persistence. Live IDs expire after 15 minutes and are lost on server restart.
+   Preserve the exported envelope, not just its live ID. If a follow-up reports an expired
+   or unavailable result, re-assess the preserved evidence once and use the exact new ID,
+   keeping original source timestamps. If that retry fails, report UNAVAILABLE and retain
+   the envelope for later; do not loop or claim persistence. A new live search is needed
+   only when fresh provider evidence is required or no preserved snapshot is available.
 6. Compare both the canonical Library seen-role registry and saved MCP records. An absent
    MCP record alone does not prove a role is unseen. Do not reset dismissed/applied states.
 7. Persist only through an actually available, authorised write route. Confirm its result.

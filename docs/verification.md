@@ -22,11 +22,31 @@ conversations explicitly selected Career Search and attempted `get_profile`, but
 `FORBIDDEN: This conversation does not support developer MCPs`. They also lack verified
 Library writes. Their direct MCP integration and automatic shared persistence are blocked.
 
-The existing developer-compatible verification conversation successfully called
-`get_profile`, live search and `score_fit`, confirming the new profile and all five fields.
-Its tool inventory still lacked the two new tool names: ChatGPT plugin refresh is pending
-because the Mac locked during the UI step. Server tests do not establish ChatGPT access
-to those two tools. No replacement conversations or schedules were created.
+## ChatGPT refresh and handoff verification, 20 September 2026
+
+Safari refreshed Career Search successfully. Settings now lists all twelve read-only tools,
+including `assess_job_evidence`, `prepare_handoff` and the CV-variant parameters.
+The existing developer-compatible verification conversation actually completed
+`search_saved_jobs` → `prepare_handoff` → `assess_job_evidence(technical_support)` →
+`tailor_resume(technical_support)`. The assessment returned all five role fields and
+preserved the original source retrieval time. The selected CV was
+`trevor_kirton_technical_support.pdf`. An independent AWS MCP call resolved the exact
+ChatGPT-generated temporary reference and verified the selected CV and all five fields.
+Nothing was persisted or submitted by this read-only test.
+
+The first attempt failed because its temporary reference was lost during a server restart.
+Host logs show repeated service restarts during automatic package updates, including a
+06:43:08 UTC restart immediately before the 06:43:12 tailoring error; updates completed
+at 06:44:06. A fresh chain then passed. The ID had the correct 32-character suffix and
+was not mistyped. Temporary IDs remain intentionally in memory; the agent contract now
+explicitly describes bounded recovery from preserved handoff evidence after restart.
+Security updates were left enabled.
+
+A post-refresh retry in each original agent conversation found no exposed Career Search
+tools; this differs from their earlier explicit FORBIDDEN responses and does not establish
+working access. Their configuration amendments remain saved, but original-agent execution,
+scheduled MCP access and automatic shared persistence remain unverified or blocked.
+No replacement conversations or schedules were created.
 
 ## Historical live-search release
 
