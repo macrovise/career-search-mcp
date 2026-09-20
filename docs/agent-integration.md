@@ -11,11 +11,18 @@ Include these five labels even in needs-verification and excluded-result section
 
 | Label | Required evidence |
 |---|---|
-| HTTP Status | Actual code, checked URL, check time and observer; otherwise NOT_CHECKED or UNAVAILABLE. API success is not job-page success. A 200 alone is not proof a vacancy accepts applications. |
+| HTTP Status | Outcome of the source plugin/MCP fetch (SUCCESS, FAILED, or NOT_CALLED/UNAVAILABLE), plus the actual transport HTTP code when exposed. Otherwise say HTTP code unavailable. Successful zero-result calls remain SUCCESS. Never infer 200 from tool success. |
 | Eligibility/Compatibility | Separate current work authorisation, employer hiring rules, remote working location, salary, employment, role fit and unknowns. Check Algeria as a future destination separately from UK work authorisation. |
 | ATS Score | Label as estimated CV keyword coverage; show CV variant, matched/detected counts and method. Never call it an employer ATS score or hiring probability. Use unavailable when CV/JD evidence cannot support computation. |
 | Fetched_at | Actual source retrieval timestamp with timezone; retain per-source timestamps. Never substitute posting time, report time or reassessment time. |
 | Source | Every contributing provider/plugin, retrieval method, original listing and application URLs. |
+
+The user-facing HTTP Status row is assembled from the caller's source tool-call receipt.
+The deployed `http_status.checks` field describes URL checks and must not be relabelled
+as connector transport evidence. Keep any employer-page checks separate. A successful
+Career Search assessment is not proof of a successful originating provider fetch.
+Preserve both transport and tool/application outcomes when they differ, and distinguish
+failed attempts from a successful retry.
 
 MCP responses expose `http_status`, `eligibility_compatibility`, `ats_score`, `fetched_at`,
 and `source`. `score_fit`, search, detail, saved jobs and writing briefs share this contract.
@@ -78,7 +85,7 @@ verdict, fit and gaps, and a separate evidence table for every reported role:
 
 | Required field | Result |
 | --- | --- |
-| HTTP Status | Observed code with evidence, or NOT_CHECKED |
+| HTTP Status | Source plugin/MCP fetch outcome and observed transport code, or HTTP code unavailable |
 | Eligibility / Compatibility | Employment, salary, remote scope and unresolved country restrictions |
 | ATS Score — estimated CV keyword coverage | Value, matched/detected counts, CV variant and limitations |
 | Fetched_at | Original source or caller-observed response receipt time, with timezone |
