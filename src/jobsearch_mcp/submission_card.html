@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Application tracker</title>
+<style>
+body{font:15px system-ui,sans-serif;margin:16px;color:light-dark(#202124,#eee);background:transparent;color-scheme:light dark}article{border:1px solid #8886;border-radius:12px;padding:16px;margin-bottom:12px}h2{font-size:17px;margin:0 0 6px}p{line-height:1.5}button{font:inherit;padding:10px 16px;border:1px solid #888;border-radius:8px;cursor:pointer}button:disabled{cursor:default;opacity:.7}.note{font-size:13px}.error{color:light-dark(#b42318,#ffaaa0)}
+</style>
+<p class="note">Record an application you have already sent. This does not submit an application.</p>
+<main id="jobs">Loading saved roles…</main>
+<p id="connection" role="status" aria-live="polite"></p>
+<script>
+// The host handles authentication and approvals. No credentials or external requests live here.
+const pending = new Map(); let nextId = 1; let writable = false;
+const connection = document.getElementById('connection');
+function request(method, params) {
+  return new Promise((resolve, reject) => {
+    const id = nextId++;
+    const timer = setTimeout(() => { pending.delete(id); reject(new Error('No response. Check the record before retrying.')); }, 45000);
+    pending.set(id, {resolve, reject, timer});
+    window.parent.postMessage({jsonrpc:'2.0',id,method,params}, '*');
+  });
+}
+function data(result) {
+  if (result?.isError) throw new Error('Career Search could not complete this action.');
+  if (!result?.structuredContent) throw new Error('No verified record returned.');
+  return result.structuredContent;
+}
+function addJob(job) {
+  const article = document.createElement('article');
+  const heading = document.createElement('h2'); heading.textContent = job.title;
+  const company = document.createElement('p'); company.textContent = job.company;
+  const button = document.createElement('button'); button.type = 'button';
+  const status = document.createElement('p'); status.setAttribute('role','status'); status.setAttribute('aria-live','polite');
+  const confirm = document.createElement('div'); confirm.hidden = true;
+  const question = document.createElement('p'); question.textContent = 'Have you already submitted your application for this exact role?';
+  const yes = document.createElement('button'); yes.textContent = 'Yes, I have submitted it';
+  const cancel = document.createElement('button'); cancel.textContent = 'Cancel';
+  confirm.append(question, yes, document.createTextNode(' '), cancel);
+  function show(current) {
+    const submitted = current.application_tracking?.submission_status === 'submitted';
+    button.textContent = submitted ? 'Submitted ✓' : 'Mark as submitted';
+    button.disabled = submitted || !writable;
+    status.textContent = submitted ? 'Saved in your shared application register.' : (!writable ? 'Write access is disabled.' : 'No submission recorded.');
+  }
+  show(job);
+  button.onclick = () => { confirm.hidden = false; button.hidden = true; yes.focus(); };
+  cancel.onclick = () => { confirm.hidden = true; button.hidden = false; button.focus(); };
+  yes.onclick = async () => {
+    yes.disabled = true; cancel.disabled = true; status.className = ''; status.textContent = 'Saving…';
+    try {
+      // Unknown submission time stays unknown; recorded_at is the time of this confirmation.
+      data(await request('tools/call', {name:'mark_as_applied', arguments:{job_id:job.id,confirmation:{confirmed:true,submitted_at:null,recorded_at:new Date().toISOString(),evidence:'User clicked “Yes, I have submitted it” on the exact saved role in Career Search.',evidence_source:'user_confirmation'}}}));
+      const verified = data(await request('tools/call', {name:'get_job_detail',arguments:{job_id:job.id}}));
+      if (verified.id !== job.id || verified.application_tracking?.submission_status !== 'submitted') throw new Error('Save could not be verified. Ask Career Search to check this role.');
+      show(verified); confirm.hidden = true; button.hidden = false;
+      request('ui/update-model-context', {content:[{type:'text',text:JSON.stringify({job_id:job.id,submission_status:'submitted',exclude_from_discovery:true})}]}).catch(() => {});
+    } catch (error) { status.className = 'error'; status.textContent = error.message; }
+    finally { yes.disabled = false; cancel.disabled = false; }
+  };
+  article.append(heading,company,button,confirm,status); return article;
+}
+function render(result) {
+  writable = result.writes_enabled === true;
+  const root = document.getElementById('jobs'); root.replaceChildren();
+  for (const job of result.jobs || []) root.append(addJob(job));
+  if (!result.jobs?.length) root.textContent = 'No saved roles selected.';
+}
+window.addEventListener('message', event => {
+  if (event.source !== window.parent || event.data?.jsonrpc !== '2.0') return;
+  const message = event.data;
+  if (pending.has(message.id)) {
+    const item = pending.get(message.id); pending.delete(message.id); clearTimeout(item.timer);
+    message.error ? item.reject(new Error(message.error.message || 'Action was not completed.')) : item.resolve(message.result);
+  } else if (message.method === 'ui/notifications/tool-result') {
+    try { render(data(message.params)); } catch (error) { connection.textContent = error.message; }
+  }
+});
+request('ui/initialize',{protocolVersion:'2026-01-26',appInfo:{name:'Career Search applications',version:'1.0.0'},appCapabilities:{}})
+  .then(() => window.parent.postMessage({jsonrpc:'2.0',method:'ui/notifications/initialized'}, '*'))
+  .catch(() => { connection.textContent = 'Interactive controls are unavailable here. Tell Career Search “Mark this role as submitted”.'; });
+</script></html>

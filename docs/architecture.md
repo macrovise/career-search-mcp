@@ -3,10 +3,11 @@
 ## Agent integration extension
 
 See [Shared Career agent contract v1](agent-integration.md) for the new five-field result
-contract, two CV variants, plugin evidence assessment, portable handoff and host-only
-admin writes. The current code exposes 12 read-only tools and 17 tools in full mode.
-`import_job_evidence` is a write and is removed in read-only mode. The older transport
-and deployment notes below describe the original 10/13-tool release.
+contract, two CV variants, plugin evidence assessment, portable handoff and admin writes.
+The current code exposes 13 read-only tools and 18 tools in full mode.
+`import_job_evidence` is a write and is removed in read-only mode. The AWS server now
+exposes all 18 tools; ChatGPT refresh and per-agent write/read-back verification are still
+pending. Earlier 10/13-tool results are historical evidence.
 
 ## Main workflow
 
@@ -50,29 +51,30 @@ these IDs. When a result matches a saved job, it also returns the raw `saved_job
 it returns an empty history. A server restart, expiry, or eviction removes the temporary
 result, so run the search again to use it.
 
-### ChatGPT Pro read-only mode
+### Configurable read and write access
 
-OpenAI currently documents Pro access to custom MCP apps with read/fetch permissions in
-Developer Mode. Write-capable MCP access is limited to Business, Enterprise, and Edu.
-Secure MCP Tunnel does not change those plan permissions. See the current
-[OpenAI Help Center plan guidance](https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt).
+[OpenAI's Developer Mode documentation](https://developers.openai.com/api/docs/guides/developer-mode)
+supports read and write MCP tools on ChatGPT Pro, with confirmation for write actions by
+default. Secure MCP Tunnel provides the private connection; the server's configuration
+controls which tools it exposes.
 
-Set `CAREER_READ_ONLY=true` on the MCP server used by Pro. The server removes and rejects
-`search_jobs`, `save_profile`, and `update_status`. The read-only
-`search_saved_jobs(query, status, limit, offset)` tool searches only watcher-collected
-records and returns `jobs`, `excluded_jobs`, and pagination/coverage evidence. The
-read-only `search_live_jobs(query, sources, limit)` tool instead retrieves current results
-from configured enabled providers without persistence. The watcher continues to perform
-source discovery and persistence as a separate local process; the ChatGPT MCP request does
-not change watcher records. The default `CAREER_READ_ONLY=false` preserves the existing
-interface for an authorized deployment with write access.
+The default `CAREER_READ_ONLY=false` exposes 18 tools. The five writes are `search_jobs`,
+`save_profile`, `update_status`, `import_job_evidence`, and `mark_as_applied`. The AWS service
+was switched to this mode on 20 September 2026 and its tool inventory verified directly.
+ChatGPT must refresh the connection, and each agent must complete an actual write and
+read-back before its write access is considered verified. Scheduled writes need their own
+execution test; server availability is not proof of unattended client permission.
 
-The four ChatGPT reasoning tools remain available: `build_profile`, `score_fit`,
-`tailor_resume`, and `cover_letter_brief`. They prepare or retrieve evidence for ChatGPT
-and do not call an external LLM. In Pro read-only mode, ChatGPT cannot save a reviewed
-profile or change a job's lifecycle through this MCP. If a saved résumé profile is needed,
-stop the tunnel and initialize it through a trusted loopback-only client, then restart
-the MCP server with `CAREER_READ_ONLY=true` before reconnecting the tunnel.
+Set `CAREER_READ_ONLY=true` to remove and reject all five writes. The remaining 12 tools
+include saved-record search and `search_live_jobs`, which retrieves current results
+without persistence. The watcher still performs discovery and persistence as a separate
+process. Read-only mode is an optional deployment restriction, not a Pro plan requirement.
+
+The four reasoning tools, `build_profile`, `score_fit`, `tailor_resume`, and
+`cover_letter_brief`, remain read-only in both modes. They return structured evidence for
+ChatGPT and never call an external LLM. `save_profile` persists a reviewed profile;
+`mark_as_applied` records an explicitly confirmed past submission. Neither drafts nor
+button availability constitute evidence that an application was submitted.
 
 SQLite transactions cover identity lookup, merge, provenance, and persistence.
 WAL plus a busy timeout supports one MCP process and one watcher on the same local
@@ -176,7 +178,7 @@ work authorization begin unknown and must be supplied by the user.
 
 `save_profile` is an explicit write; the four reasoning tools never alter the saved résumé.
 All are published with MCP annotations and, in OAuth mode, security scheme metadata.
-The full interface has 13 tools, while `CAREER_READ_ONLY=true` exposes 10 read-only tools.
+The full interface has 18 tools, while `CAREER_READ_ONLY=true` exposes 13 read-only tools.
 `search_jobs` is accurately marked as a write because discoveries are persisted.
 `search_saved_jobs` is read-only: query matching is limited to stored title/company/
 description text, applies optional status and pagination, and returns an explicit
@@ -218,4 +220,5 @@ Default configuration leaves it disabled. Do not copy ChatGPT-managed tokens int
 See [Shared application register](application-register.md). Confirmed submission evidence
 is retained independently of lifecycle status and excludes a vacancy from discovery and
 new preparation. Existing read tools expose application_tracking. Full mode adds the
-mark_as_applied write; the deployed read-only surface stays at 12 tools.
+`mark_as_applied` write. The AWS backend now exposes all 18 tools; ChatGPT refresh and
+per-agent write/read-back checks are pending.

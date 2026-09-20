@@ -37,22 +37,25 @@ The watcher stores discoveries and marks explicitly scheduled follow-ups due.
 It never marks a job applied, infers rejection from a missing search result, or sends email.
 It runs only while this process is running; no background system service is installed automatically.
 
-## ChatGPT Pro read-only access
+## ChatGPT read and write access
 
-ChatGPT Pro supports custom MCP apps with read/fetch permissions in Developer Mode;
-write-capable MCP access is currently limited to Business, Enterprise, and Edu. For Pro,
-run the MCP server with `CAREER_READ_ONLY=true`. The 12-tool read-only surface includes
-`search_saved_jobs` for watcher-collected records and `search_live_jobs` for an on-demand
-query against configured, enabled providers. Live search bypasses the server's source cache
-and does not persist results; it still needs network access and provider results can be
-limited or incomplete. The four evidence and writing-preparation tools remain available.
-Profile saving and lifecycle changes are not available through the Pro connection. The
-earlier 10-tool read-only revision was deployed on AWS and its live-search flow passed direct MCP
-HTTP checks. ChatGPT Settings refreshed successfully and showed the ten READ tools; a
-real ChatGPT call then verified live search and follow-up evidence reads. A relevance fix
-now requires role-title evidence, preventing unrelated descriptions from filling the
-results. The earlier nine-tool ChatGPT checks remain historical evidence. See
-[verification status](docs/verification.md) and [the tunnel and Pro setup guide](docs/deployment.md).
+[OpenAI's Developer Mode documentation](https://developers.openai.com/api/docs/guides/developer-mode)
+supports read and write MCP tools on ChatGPT Pro. Write actions require confirmation by
+default. `CAREER_READ_ONLY=false` exposes 18 tools: 12 reads and five writes:
+`search_jobs`, `save_profile`, `update_status`, `import_job_evidence`, and `mark_as_applied`.
+These writes save career records; none submits an application or contacts an employer.
+
+On 20 September 2026, the existing AWS service was switched to full mode and its 17-tool
+inventory was verified directly. Refreshing the ChatGPT connection and verifying a write
+followed by a read-back in both career agents remain separate, pending checks. Backend
+activation alone does not establish that ChatGPT or an unattended scheduled run can write.
+
+`CAREER_READ_ONLY=true` remains an optional restriction, independent of the Pro plan.
+Its 12-tool surface includes `search_saved_jobs` for stored records and `search_live_jobs`
+for on-demand queries without persistence. The four evidence and writing-preparation
+tools remain available in either mode. Earlier nine- and ten-tool ChatGPT checks are
+historical evidence only. See [verification status](docs/verification.md) and
+[connection instructions](docs/deployment.md).
 
 No tunnel, API key, Adzuna account, subscription change, or deployment is provisioned
 automatically. Optional Adzuna credentials require registration with the
@@ -64,10 +67,12 @@ deployment guide.
 The shared result contract adds HTTP Status, Eligibility/Compatibility, estimated ATS
 keyword coverage, Fetched_at and Source to each role. Existing job plugins can pass
 evidence to `assess_job_evidence` without network calls or persistence.
-`prepare_handoff` exports portable evidence for the other agent; an authorised host-only
-`career-admin` command supports profile saving, handoff import and lifecycle updates.
+`prepare_handoff` exports portable evidence for the other agent. In full mode, MCP write
+tools save reviewed profiles, import evidence, and update lifecycle/submission records.
+The authorised host-only `career-admin` command remains an alternative.
 Two CV variants share one factual profile. See [agent integration](docs/agent-integration.md)
-for the exact contract, read-only boundaries and incomplete automatic handoff limitations.
+for the evidence contract and historical read-only handoff limitations. End-to-end write
+verification is still required before treating the agents as write-enabled.
 
 ## Development checks
 

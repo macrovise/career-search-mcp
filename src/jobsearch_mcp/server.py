@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from fastmcp import FastMCP
 from pydantic import Field
 
+from .applications import application_tracking
 from .auth import auth_provider
 from .models import ExternalJobEvidence, Profile, Status, Submission
 from .reasoning import build_profile as prepare_profile
@@ -46,6 +47,40 @@ def create_server(store: Store | None = None, *, local_test: bool = False):
             "writes require user intent."
         ),
     )
+
+    card_uri = "ui://career-search/submission-card-v1.html"
+
+    @mcp.resource(
+        card_uri,
+        mime_type="text/html;profile=mcp-app",
+        meta={"ui": {"prefersBorder": True, "csp": {"connectDomains": [], "resourceDomains": []}}},
+    )
+    def submission_card() -> str:
+        return Path(__file__).with_name("submission_card.html").read_text()
+
+    @mcp.tool(annotations=READ, meta={**metadata, "ui": {"resourceUri": card_uri}})
+    def show_application_tracker(
+        job_ids: Annotated[list[str], Field(min_length=1, max_length=20)],
+    ) -> dict:
+        """Show saved roles with a Mark as submitted button in ChatGPT.
+
+        First persist temporary/plugin results with import_job_evidence and use the
+        returned saved IDs. Rendering never writes. Button confirmation records a past
+        submission through mark_as_applied, then reads it back. Never applies for a job.
+        """
+        jobs = [store.get(job_id) for job_id in dict.fromkeys(job_ids)]
+        return {
+            "jobs": [
+                {
+                    "id": job.id,
+                    "title": job.title,
+                    "company": job.company,
+                    "application_tracking": application_tracking(job),
+                }
+                for job in jobs
+            ],
+            "writes_enabled": read_only_setting == "false",
+        }
 
     @mcp.tool(annotations={**WRITE, "openWorldHint": True}, meta=metadata)
     async def search_jobs(

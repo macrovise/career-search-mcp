@@ -20,7 +20,7 @@ Copy `.env.example` to `.env` locally; do not commit it. The server and watcher 
 | Variable | Use |
 |---|---|
 | CAREER_AUTH_MODE | `oauth` default, or `local` for trusted loopback tests only |
-| CAREER_READ_ONLY | `false` default. Set `true` to hide/reject `search_jobs`, `save_profile`, and `update_status`; saved and live searches remain available |
+| CAREER_READ_ONLY | `false` default. Set `true` to hide/reject all five writes: `search_jobs`, `save_profile`, `update_status`, `import_job_evidence`, and `mark_as_applied`; 13 read tools remain available |
 | CAREER_PUBLIC_URL | HTTPS origin/base URL; token audience is this URL plus `/mcp` |
 | OAUTH_ISSUER | Exact issuer in signed access token, including any trailing slash |
 | OAUTH_JWKS_URL | HTTPS signing-key discovery endpoint |
@@ -65,16 +65,11 @@ still require a real deployment test.
 
 ## Private Secure MCP Tunnel alternative
 
-OpenAI's current Help Center says ChatGPT Pro can connect custom MCP apps with read/fetch
-permissions in Developer Mode. Write-capable MCP access is currently limited to Business,
-Enterprise, and Edu. Secure MCP Tunnel does not change those plan permissions. This design
-therefore uses `CAREER_READ_ONLY=true` for Pro and a background watcher to save discovered
-jobs. ChatGPT can read those records with `search_saved_jobs` or make an on-demand query
-with `search_live_jobs`. Live search bypasses the server's SQLite source cache and does not
-persist results; it still needs network access and provider results can be limited or
-incomplete. The four evidence and writing-preparation tools remain available, while
-`search_jobs`, `save_profile`, and `update_status` are hidden and rejected. See
-[OpenAI's plan guidance](https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt).
+[OpenAI's Developer Mode documentation](https://developers.openai.com/api/docs/guides/developer-mode)
+supports read and write MCP tools on ChatGPT Pro. Write actions require confirmation by
+default. `CAREER_READ_ONLY=false` exposes all 18 tools; set it to `true` only when a
+13-tool read-only surface is desired. This choice does not require a plan upgrade.
+`search_live_jobs` remains non-persistent in either mode; `search_jobs` saves discoveries.
 
 The existing Career Search tunnel and custom app are backed by the AWS London server.
 The official tunnel client runs as a restricted systemd service, with its runtime key held
@@ -85,14 +80,20 @@ stopped.
 Historical ChatGPT verification on 19 September covered the earlier nine-tool interface:
 a fresh Chat conversation successfully called `get_profile`, `search_saved_jobs` and all
 four evidence tools through AWS. That remains evidence for those six calls, not for the
-new live-search tool. The current AWS revision, `baf2013293169b6196323b2de50ac8b1103316c3`,
-exposes 10 read-only tools and 13 tools in the full interface. Direct MCP HTTP verification
+new live-search tool. The historical AWS revision, `baf2013293169b6196323b2de50ac8b1103316c3`,
+exposed 10 read-only tools and 13 tools in the full interface. Direct MCP HTTP verification
 searched for `Technical Support Engineer` with a limit of 10, returned four reviewable jobs
 from four total, then passed a live ID to `get_job_detail`, `score_fit`, `tailor_resume`,
 and `cover_letter_brief`. The complete SQLite dump digest was unchanged before and after.
-ChatGPT Settings lists all ten tools after Refresh. Following an initial discovery failure,
+At that revision, ChatGPT Settings listed all ten tools after Refresh. Following an initial discovery failure,
 a real ChatGPT live-search call and follow-up evidence reads succeeded. See
 [verification status](verification.md) for the separate server and ChatGPT evidence.
+
+On 20 September 2026, the existing AWS service was switched to `CAREER_READ_ONLY=false`.
+Direct inventory verification confirmed 18 tools, including five write tools. The private
+tunnel and loopback binding remain in place. **ChatGPT connection refresh and actual
+write/read-back verification in both career agents are pending.** This backend check does
+not establish unattended scheduled write support.
 
 Use the [AWS deployment guide](../deploy/aws/README.md) for the active hosted setup.
 The following Mac instructions describe a local alternative; switching back requires
@@ -123,7 +124,8 @@ tunnel-client help quickstart
 
 Only after Platform tunnel access is verified and the tunnel ID and Restricted runtime key
 are provisioned, use a local loopback-only Career Search MCP server. Set
-`CAREER_AUTH_MODE=local`, `CAREER_READ_ONLY=true`, and `MCP_HOST=127.0.0.1` in the untracked
+`CAREER_AUTH_MODE=local`, `CAREER_READ_ONLY=false` (or `true` to restrict writes), and
+`MCP_HOST=127.0.0.1` in the untracked
 `.env` file. Do not put local/no-auth mode behind a generic public tunnel. Start the MCP
 server and watcher as separate processes using the same `CAREER_DB_PATH`:
 
@@ -225,47 +227,49 @@ Scout's own `scout_score` is not used by Career Search MCP. All reasoning remain
 
 ## Connect the finished Career Search MCP
 
-Choose the tool flow that matches the ChatGPT plan and server configuration.
+Choose the tool flow that matches the intended server permissions.
 
-### ChatGPT Pro read-only flow
+### Refresh the existing connection
 
-After tunnel access and the local runtime are verified as described above:
+1. Verify the private tunnel and MCP service are healthy. Keep the MCP listener on
+   `127.0.0.1`; do not expose local/no-auth mode through a public endpoint.
+2. In ChatGPT Plugins, open the existing Career Search MCP connection and choose Refresh.
+   See [OpenAI's connection guide](https://developers.openai.com/plugins/deploy/connect-chatgpt).
+3. Inspect the refreshed tool list. Full mode must show 18 tools, including `search_jobs`,
+   `save_profile`, `update_status`, `import_job_evidence`, and `mark_as_applied` as writes.
+   Optional read-only mode must show 12 tools and exclude all five writes.
+4. Select Career Search MCP in each target conversation. Verify a real read such as
+   `get_job_detail`. If tool metadata is stale, follow the connection guide's fresh-chat
+   verification procedure; do not assume that refreshing settings updates every runtime.
+5. For write access, use an authorised, controlled record update and read it back. An
+   idempotent `mark_as_applied` call for an already-confirmed submission can verify the
+   route without inventing a new application. Respect ChatGPT's write confirmation flow.
+   Check `get_job_detail` and `get_job_history` for the expected persistent result.
+6. Verify both career agents separately. An unattended scheduled run needs a separate
+   execution test; leave its timing and enabled state unchanged during connection checks.
 
-1. In ChatGPT's Plugins UI choose Create app, or use Settings -> Apps -> Create. Enable
-   Developer Mode if prompted, choose Tunnel as the connection, and select/paste the
-   provisioned tunnel ID.
-2. Select Career Search MCP in the conversation's Plugins/tools menu (called Apps in the
-   current Help Center) and inspect the tool list. With `CAREER_READ_ONLY=true`,
-   `search_jobs`, `save_profile`, and `update_status` should not be listed. The current AWS
-   revision exposes 10 read-only tools, including `search_live_jobs`; direct server HTTP
-   checks passed. ChatGPT Settings was refreshed and lists all ten tools; real live-search
-   calls are recorded in the current verification status.
-3. Call `search_saved_jobs` with a role query such as `Technical Support Engineer`; verify
-   the response reports saved listings only and returns pagination/coverage information.
-   Run the local watcher separately for new source searches and persistence.
-4. Call `search_live_jobs` with a relevant role query. Check the per-source fetch time and
-   failure status, `cached: false`, and the returned/truncated counts. Its `live:` IDs are
-   temporary; use one with `get_job_detail` or an evidence tool while it is available. The
-   AWS HTTP acceptance passed these checks; ChatGPT also successfully called live search
-   after an initial tool-discovery failure. See verification status for revision-specific evidence.
-5. For a saved or live job ID, call `score_fit`, `tailor_resume`, and `cover_letter_brief`
-   to prepare evidence for ChatGPT's reasoning. `build_profile` prepares a profile draft
-   but cannot save it through the Pro connection. To save a reviewed profile or change a
-   lifecycle state, stop the tunnel first, use a trusted loopback connection with writes
-   enabled, then restart the server in read-only mode before reconnecting the tunnel.
+### New read-only connection
 
-### Full MCP write-enabled flow
+Create a custom app in Developer Mode and choose the provisioned private tunnel. Set
+`CAREER_READ_ONLY=true` before starting the service, then verify the 12-tool inventory.
+Test `search_saved_jobs` for stored listings and `search_live_jobs` for request-time source
+results, including per-source fetch times, failures and truncation. Live IDs are temporary.
+`score_fit`, `tailor_resume`, `cover_letter_brief`, and `build_profile` prepare evidence;
+none saves a reviewed profile. Use full mode or the authorised host-only admin route for
+persistent changes.
 
-OpenAI currently limits full MCP write/modify actions to Business, Enterprise, and Edu.
-For an authorized deployment, leave `CAREER_READ_ONLY=false` and use the secure OAuth
-deployment above or a tunnel configured for the target workspace. In OAuth mode, add a
-custom app in ChatGPT, connect to `https://YOUR-HOST/mcp`, complete the identity provider's
-sign-in, and verify the owner subject and `career:access` scope. Select the app in the
-conversation, then test `get_profile`, `search_jobs`, `search_live_jobs`, `score_fit`, and
-the three evidence tools. After explicit user review, test profile/lifecycle persistence with `save_profile`,
-`update_status`, `get_my_jobs`, and `get_job_history` as appropriate. Never submit an
-application or send a message through this workflow.
+### New write-enabled connection
+
+Set `CAREER_READ_ONLY=false` and use the private tunnel or the secure public OAuth
+deployment above. For public OAuth, connect to `https://YOUR-HOST/mcp`, complete the
+identity provider's sign-in, and verify the owner subject and `career:access` scope.
+Follow the same 17-tool inventory and controlled write/read-back checks described above.
+
+`save_profile` saves reviewed factual evidence. `import_job_evidence` persists external
+plugin evidence. `update_status` changes the tracked lifecycle. `mark_as_applied` records
+an explicitly confirmed past submission; it never submits one. `search_jobs` discovers
+and saves listings. No tool sends a message or submits an application.
 
 Do not report either route as connected until the relevant tool calls succeed inside
 ChatGPT. A successful local test, the presence of a Tunnel option, or published plan
-documentation does not prove this account's tunnel entitlement or live connection.
+documentation does not prove this account's live connection or scheduled write support.

@@ -18,6 +18,7 @@ EXPECTED_TOOLS = {
     "search_saved_jobs",
     "search_live_jobs",
     "tailor_resume",
+    "show_application_tracker",
 }
 
 
