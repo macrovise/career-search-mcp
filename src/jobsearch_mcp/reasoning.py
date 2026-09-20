@@ -26,8 +26,9 @@ HEADING_KIND = re.compile(
     re.I,
 )
 OTHER_HEADING = re.compile(
-    r"^(?:responsibilities|what you'll do|about (?:us|the role)|benefits|compensation|"
-    r"why join|equal opportunity)\s*:?$",
+    r"^(?:responsibilities|what you'll do|what we offer|about (?:us|the role)|"
+    r"benefits(?:\s*(?:&|and)\s*perks)?|perks|compensation|why join|"
+    r"equal opportunity)\s*:?$",
     re.I,
 )
 REQUIREMENT_CANDIDATE = re.compile(
@@ -107,7 +108,9 @@ def _requirement_lines(description: str) -> list[tuple[str, str]]:
             heading_kind = "desirable" if DESIRABLE_MARKERS.search(line) else "essential"
             continue
         if OTHER_HEADING.fullmatch(line):
-            heading_kind = "unknown"
+            heading_kind = "ignore"
+            continue
+        if heading_kind == "ignore":
             continue
         explicit = ESSENTIAL_MARKERS.search(line) or DESIRABLE_MARKERS.search(line)
         if not explicit and heading_kind == "unknown" and not REQUIREMENT_CANDIDATE.search(line):

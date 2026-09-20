@@ -142,6 +142,23 @@ def test_requirement_without_priority_marker_is_classified_unknown():
     assert result["requirements"][0]["classification"] == "unknown"
 
 
+def test_benefits_are_not_extracted_as_requirements_and_later_heading_resets():
+    description = (
+        "What we offer:\n"
+        "- Parental leave with the ability to extend time away\n"
+        "- Meal stipends and home-office benefits\n"
+        "Requirements:\n"
+        "- Experience with customer-facing API troubleshooting"
+    )
+
+    result = score_fit(job(description=description), Profile())["requirement_fit"]
+
+    assert [item["job_quote"] for item in result["requirements"]] == [
+        "Experience with customer-facing API troubleshooting"
+    ]
+    assert result["requirements"][0]["classification"] == "essential"
+
+
 def test_phone_on_call_and_location_constraints_are_quote_based():
     result = score_fit(
         job(
