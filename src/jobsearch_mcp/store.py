@@ -99,7 +99,8 @@ def merge_records(old: Job, new: Job) -> Job:
         key=lambda s: (SOURCE_PRIORITY.get(s.source, 99), -s.fetched_at.timestamp()),
     )
     data = old.model_dump()
-    # Rebuild selected fields from provenance, rather than depending on arrival order.
+    # Rebuild provider-owned fields from retained snapshots. Starting with old
+    # canonical values would keep evidence that a refreshed source withdrew.
     fields = [
         "title",
         "company",
@@ -119,6 +120,28 @@ def merge_records(old: Job, new: Job) -> Job:
         "skills",
         "country_restrictions",
     ]
+    defaults = {
+        # These required identity fields always have a valid incoming value.
+        "title": new.title,
+        "company": "",
+        "location": "",
+        "remote_scope": "unknown",
+        "salary_min": None,
+        "salary_max": None,
+        "currency": None,
+        "salary_period": None,
+        "salary_is_predicted": False,
+        "salary_text": "",
+        "employment_type": "unknown",
+        "posted_at": None,
+        "source_url": new.source_url,
+        "application_url": "",
+        "description": "",
+        "skills": [],
+        "country_restrictions": [],
+    }
+    for field in fields:
+        data[field] = defaults[field]
     conflicts = []
     for field in fields:
         values = [
