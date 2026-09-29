@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh Career Search six hours after each discovery run
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=6h
+AccuracySec=1min
+Unit=career-watcher.service
+
+[Install]
+WantedBy=timers.target

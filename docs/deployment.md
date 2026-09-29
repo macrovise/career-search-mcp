@@ -1,0 +1,271 @@
+# Local development, secure hosting and ChatGPT connection
+
+## Do you need hosting?
+
+ChatGPT needs a route to the running MCP server. That can be a server on a hosting
+provider, or your Mac through OpenAI's private Secure MCP Tunnel if available for
+your account. A local command alone is not a ChatGPT connection. With the Mac option,
+it must stay powered on, awake and connected for searches and the watcher to run.
+This repository provisions no hosting subscription, tunnel, identity tenant, paid resource
+or persistent system service.
+
+Start with local validation (README). For production, the supported public-server
+configuration uses a persistent volume, HTTPS reverse proxy, and an external OAuth
+provider. Do not expose local/no-auth mode via a generic public tunnel.
+
+## Environment
+
+Copy `.env.example` to `.env` locally; do not commit it. The server and watcher read it.
+
+| Variable | Use |
+|---|---|
+| CAREER_AUTH_MODE | `oauth` default, or `local` for trusted loopback tests only |
+| CAREER_READ_ONLY | `false` default. Set `true` to hide/reject `search_jobs`, `save_profile`, and `update_status`; saved and live searches remain available |
+| CAREER_PUBLIC_URL | HTTPS origin/base URL; token audience is this URL plus `/mcp` |
+| OAUTH_ISSUER | Exact issuer in signed access token, including any trailing slash |
+| OAUTH_JWKS_URL | HTTPS signing-key discovery endpoint |
+| OAUTH_OWNER_SUBJECT | Exact immutable `sub` claim for the owner; rejects other users |
+| MCP_HOST / MCP_PORT | `127.0.0.1` / `8383` defaults |
+| CAREER_DB_PATH | `data/career.sqlite3`; Docker uses `/data/career.sqlite3` |
+| CAREER_SOURCES | Comma-separated enabled source names |
+| WATCH_INTERVAL_SECONDS | Defaults/minimum 21600 (six hours) |
+| ADZUNA_APP_ID / ADZUNA_APP_KEY | Optional official Adzuna credentials, GB market |
+| SCOUT_ACCESS_TOKEN | Optional provider-issued token for an approved independent client |
+| SCOUT_DISCOVER_ARGUMENTS | JSON argument template matching the verified live Scout schema |
+
+No Anthropic, OpenAI API, embedding, SMTP, scraping-service or LibreChat identity
+credentials are needed by Career Search MCP. An OpenAI Secure MCP Tunnel, if chosen,
+has its own separate credential requirements; those are not model API calls.
+
+## Public OAuth deployment
+
+1. Choose a single-host service with a persistent local disk and HTTPS. Ephemeral
+   filesystem-only/serverless deployments will lose jobs and profiles and are unsuitable.
+2. Configure an OAuth authorization server supporting authorization code + PKCE S256,
+   discovery metadata and ChatGPT client registration (dynamic registration or a supported
+   explicitly configured client). Restrict access to your account. Register the exact
+   callback URL displayed in ChatGPT, not a guessed shared callback.
+3. Configure RS256 access tokens with the exact issuer, audience
+   `https://YOUR-HOST/mcp`, an expiration, immutable owner subject and `career:access` scope.
+   Set the environment variables through the deployment secret manager.
+4. Run `docker compose up -d --build` with a populated `.env`. Both containers share
+   the `career-data` volume. Only the MCP loopback port is published. Put an HTTPS
+   reverse proxy on that host in front of `127.0.0.1:8383`; permit Streamable HTTP and
+   serve the `/.well-known/oauth-protected-resource/mcp` metadata route too.
+5. Verify an unauthenticated `/mcp` request returns 401 and `WWW-Authenticate` points to
+   resource metadata; verify the metadata resource is exactly the token audience.
+   Test expired/wrong-audience/other-user tokens fail, then test an owner token succeeds.
+6. Keep the disk encrypted and back it up consistently using the SQLite backup API.
+   Test a restore before relying on it. Do not run two hosts against different copies.
+
+The app is an OAuth resource server, not an OAuth account provider. Do not deploy a
+fake bearer secret as if it were a complete ChatGPT OAuth flow. Local tests prove the
+resource-server logic; provider consent/refresh and actual ChatGPT account linking
+still require a real deployment test.
+
+## Private Secure MCP Tunnel alternative
+
+OpenAI's current Help Center says ChatGPT Pro can connect custom MCP apps with read/fetch
+permissions in Developer Mode. Write-capable MCP access is currently limited to Business,
+Enterprise, and Edu. Secure MCP Tunnel does not change those plan permissions. This design
+therefore uses `CAREER_READ_ONLY=true` for Pro and a background watcher to save discovered
+jobs. ChatGPT can read those records with `search_saved_jobs` or make an on-demand query
+with `search_live_jobs`. Live search bypasses the server's SQLite source cache and does not
+persist results; it still needs network access and provider results can be limited or
+incomplete. The four evidence and writing-preparation tools remain available, while
+`search_jobs`, `save_profile`, and `update_status` are hidden and rejected. See
+[OpenAI's plan guidance](https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt).
+
+The existing Career Search tunnel and custom app are backed by the AWS London server.
+The official tunnel client runs as a restricted systemd service, with its runtime key held
+in a root-owned file and delivered through systemd credentials. The MCP service listens at
+`127.0.0.1:8383`; no inbound public application port is open. The Mac tunnel runtime is
+stopped.
+
+Historical ChatGPT verification on 19 September covered the earlier nine-tool interface:
+a fresh Chat conversation successfully called `get_profile`, `search_saved_jobs` and all
+four evidence tools through AWS. That remains evidence for those six calls, not for the
+new live-search tool. The current AWS revision, `baf2013293169b6196323b2de50ac8b1103316c3`,
+exposes 10 read-only tools and 13 tools in the full interface. Direct MCP HTTP verification
+searched for `Technical Support Engineer` with a limit of 10, returned four reviewable jobs
+from four total, then passed a live ID to `get_job_detail`, `score_fit`, `tailor_resume`,
+and `cover_letter_brief`. The complete SQLite dump digest was unchanged before and after.
+ChatGPT Settings lists all ten tools after Refresh. Following an initial discovery failure,
+a real ChatGPT live-search call and follow-up evidence reads succeeded. See
+[verification status](verification.md) for the separate server and ChatGPT evidence.
+
+Use the [AWS deployment guide](../deploy/aws/README.md) for the active hosted setup.
+The following Mac instructions describe a local alternative; switching back requires
+the documented cutover so only one tunnel and database remain authoritative.
+
+### Tunnel and runtime prerequisites
+
+- Create or select a tunnel in Platform Tunnels and associate it with the intended ChatGPT
+  workspace so it appears in that app's Tunnel picker. This Mac already has an approved
+  Career Search tunnel in the target workspace.
+- The runtime principal and the person attaching the ChatGPT app need Tunnels Read + Use.
+  Creating or editing a tunnel needs Tunnels Read + Manage.
+- Use a **Restricted** runtime key with Tunnels Read + Use. It authenticates the tunnel
+  runtime; it is not a ChatGPT credential and does not make model API calls. Reference it
+  as `file:/path/to/restricted-runtime-key`; never put its value in shell history or the
+  repository.
+- The machine running `tunnel-client` needs outbound HTTPS to `api.openai.com:443` and
+  local reachability to the MCP service. The MCP server does not need an inbound public port.
+
+On macOS, OpenAI documents Homebrew as the supported installation route; direct release ZIPs
+are not notarized. The official Homebrew client is installed here at version 0.0.14:
+
+```sh
+brew install openai/tools/tunnel-client
+tunnel-client --version
+tunnel-client help quickstart
+```
+
+Only after Platform tunnel access is verified and the tunnel ID and Restricted runtime key
+are provisioned, use a local loopback-only Career Search MCP server. Set
+`CAREER_AUTH_MODE=local`, `CAREER_READ_ONLY=true`, and `MCP_HOST=127.0.0.1` in the untracked
+`.env` file. Do not put local/no-auth mode behind a generic public tunnel. Start the MCP
+server and watcher as separate processes using the same `CAREER_DB_PATH`:
+
+```sh
+.venv/bin/career-search-mcp
+.venv/bin/career-watcher --once
+# Keep the watcher running for scheduled refreshes instead:
+.venv/bin/career-watcher
+```
+
+For a long-lived local runtime, use the managed `runtimes connect` command instead of
+`nohup`, `disown`, or manually running a profile. Attach to the existing tunnel with its ID
+and the target workspace ID; use `--workspace-id` without `--organization-id`. Supply the
+Restricted runtime key as a file reference, never as a literal key value:
+
+```sh
+tunnel-client runtimes connect \
+  --alias career-search \
+  --profile career-search \
+  --profile-dir "<private profile directory>" \
+  --tunnel-id "<existing Career Search tunnel ID>" \
+  --workspace-id "<target ChatGPT workspace ID>" \
+  --runtime-api-key "file:/path/to/restricted-runtime-key" \
+  --mcp-server-url http://127.0.0.1:8383/mcp
+tunnel-client doctor --profile career-search --profile-dir "<private profile directory>" --explain
+tunnel-client runtimes status career-search --json
+```
+
+For a new setup, enable Developer Mode, create a custom app from Settings → Apps, choose
+Tunnel as the connection, and select or paste the tunnel ID. Here, the Career Search MCP
+app is connected and verified. Open a fresh Chat conversation, choose Career Search MCP
+from Add files and more, and ask it to search saved support-engineering jobs.
+`search_saved_jobs` returns saved-listings-only coverage; the watcher refreshes sources. The same local SQLite path must be used by the server and watcher.
+No Pro plan upgrade, purchase, account change, tunnel creation, or key creation is performed
+automatically by these instructions.
+
+See OpenAI's [Secure MCP Tunnel guide](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels),
+[onboarding guide](https://github.com/openai/tunnel-client/blob/master/docs/onboarding.md),
+[permissions guide](https://github.com/openai/tunnel-client/blob/master/docs/permissions.md),
+and [end-user guide](https://github.com/openai/tunnel-client/blob/master/docs/end-user-guide.md)
+for current CLI syntax, key roles, networking, and troubleshooting.
+
+### Adzuna API credentials
+
+Adzuna is optional and uses its official API; it does not scrape job pages. Register through
+the [Adzuna Developer signup](https://developer.adzuna.com/signup). The current form requires
+account details, an organisation/group name and website, the intended API application, and
+average monthly visitors; accept Adzuna's terms. The public docs say registration provides
+an `app_id` and `app_key`. If the required organisation or website fields do not fit a
+personal project, ask Adzuna how to register; do not invent organization details.
+
+Store the issued values in the untracked local `.env` file or a deployment secret manager:
+
+```dotenv
+ADZUNA_APP_ID=<issued app id>
+ADZUNA_APP_KEY=<issued app key>
+```
+
+Add `adzuna` to `CAREER_SOURCES` to enable it. The adapter calls Adzuna's official GB search
+endpoint (`https://api.adzuna.com/v1/api/jobs/gb/search/1`) and requires both credentials.
+The [Adzuna API overview](https://developer.adzuna.com/overview) documents those required
+parameters and JSON response format. Trevor completed registration; the existing AWS
+deployment was configured privately and verified on 19 September 2026. See
+[verification results](verification.md) for actual MCP, watcher and ChatGPT checks.
+
+## Connect Stage 1 sources in ChatGPT
+
+Current provider documentation:
+[Himalayas](https://himalayas.app/docs/remote-jobs-mcp),
+[Scout](https://www.agentco.in/connect).
+
+1. Open the current ChatGPT Plugins UI and choose Create app. OpenAI's current Help Center
+   calls this Settings -> Apps -> Create; Pro users must enable Developer Mode under
+   Settings -> Apps -> Advanced Settings. Name it `Himalayas Remote Jobs`.
+2. Choose Server URL `https://mcp.himalayas.app/mcp`, authentication `No Auth` for public
+   search. Create and Connect. This server advertises employer/profile/write tools too;
+   use only `search_jobs`, `get_jobs`, `get_job_details` and other relevant public reads.
+   Do not authorize a Himalayas account or enable employer writes for this workflow.
+3. Create `Scout Job Search`, Server URL `https://agentco.in/api/mcp-remote`, authentication
+   OAuth. Let ChatGPT perform its supported registration/PKCE flow; use the exact
+   callback shown there. Provider documentation says no Scout account is required, but
+   an OAuth handshake is still required by the live endpoint.
+4. Select the connected integration explicitly from the chat's Plugins/tools menu (called
+   Apps in the current Help Center). An app
+   listed in settings may not be callable in an existing conversation automatically.
+5. Ask for actual read-only source calls using the verification prompt below. Expand
+   the tool activity and confirm results or a real empty search response from that source.
+
+Suggested verification prompt:
+
+> Use only this selected plugin's read-only discovery tool. Search recent Technical
+> Support Engineer, Support Engineer, Product Support and Customer Engineer jobs eligible
+> for UK, EMEA or worldwide remote. Prefer annual GBP £40k+ when disclosed; retain salary
+> unknown. Exclude temporary/contract and clearly lower-paid roles. Report the actual tool
+> and arguments and three representative jobs with URLs, dates and eligibility uncertainty.
+> Do not browse as a substitute, update a profile, apply, save jobs or send messages.
+
+Scout's own `scout_score` is not used by Career Search MCP. All reasoning remains in ChatGPT.
+
+## Connect the finished Career Search MCP
+
+Choose the tool flow that matches the ChatGPT plan and server configuration.
+
+### ChatGPT Pro read-only flow
+
+After tunnel access and the local runtime are verified as described above:
+
+1. In ChatGPT's Plugins UI choose Create app, or use Settings -> Apps -> Create. Enable
+   Developer Mode if prompted, choose Tunnel as the connection, and select/paste the
+   provisioned tunnel ID.
+2. Select Career Search MCP in the conversation's Plugins/tools menu (called Apps in the
+   current Help Center) and inspect the tool list. With `CAREER_READ_ONLY=true`,
+   `search_jobs`, `save_profile`, and `update_status` should not be listed. The current AWS
+   revision exposes 10 read-only tools, including `search_live_jobs`; direct server HTTP
+   checks passed. ChatGPT Settings was refreshed and lists all ten tools; real live-search
+   calls are recorded in the current verification status.
+3. Call `search_saved_jobs` with a role query such as `Technical Support Engineer`; verify
+   the response reports saved listings only and returns pagination/coverage information.
+   Run the local watcher separately for new source searches and persistence.
+4. Call `search_live_jobs` with a relevant role query. Check the per-source fetch time and
+   failure status, `cached: false`, and the returned/truncated counts. Its `live:` IDs are
+   temporary; use one with `get_job_detail` or an evidence tool while it is available. The
+   AWS HTTP acceptance passed these checks; ChatGPT also successfully called live search
+   after an initial tool-discovery failure. See verification status for revision-specific evidence.
+5. For a saved or live job ID, call `score_fit`, `tailor_resume`, and `cover_letter_brief`
+   to prepare evidence for ChatGPT's reasoning. `build_profile` prepares a profile draft
+   but cannot save it through the Pro connection. To save a reviewed profile or change a
+   lifecycle state, stop the tunnel first, use a trusted loopback connection with writes
+   enabled, then restart the server in read-only mode before reconnecting the tunnel.
+
+### Full MCP write-enabled flow
+
+OpenAI currently limits full MCP write/modify actions to Business, Enterprise, and Edu.
+For an authorized deployment, leave `CAREER_READ_ONLY=false` and use the secure OAuth
+deployment above or a tunnel configured for the target workspace. In OAuth mode, add a
+custom app in ChatGPT, connect to `https://YOUR-HOST/mcp`, complete the identity provider's
+sign-in, and verify the owner subject and `career:access` scope. Select the app in the
+conversation, then test `get_profile`, `search_jobs`, `search_live_jobs`, `score_fit`, and
+the three evidence tools. After explicit user review, test profile/lifecycle persistence with `save_profile`,
+`update_status`, `get_my_jobs`, and `get_job_history` as appropriate. Never submit an
+application or send a message through this workflow.
+
+Do not report either route as connected until the relevant tool calls succeed inside
+ChatGPT. A successful local test, the presence of a Tunnel option, or published plan
+documentation does not prove this account's tunnel entitlement or live connection.
