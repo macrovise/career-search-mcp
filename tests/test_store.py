@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from jobsearch_mcp.models import Profile, Status
+from jobsearch_mcp.reasoning import score_fit
 from jobsearch_mcp.sources.normalize import make_job
 from jobsearch_mcp.store import Store, canonical_url
 
@@ -81,6 +82,76 @@ def test_unknown_salary_does_not_erase_disclosed_salary(store):
     store.upsert(job("adzuna", "1", salary_min=45000, currency="GBP", salary_period="year"))
     merged = store.upsert(job("himalayas", "2"))
     assert merged.salary_min == 45000 and merged.currency == "GBP"
+
+
+def test_same_source_refresh_removes_withdrawn_salary_and_unknown_fields(store):
+    first = store.upsert(
+        job(
+            location="London, United Kingdom",
+            remote_scope="onsite",
+            employment_type="contract",
+            salary_min=30000,
+            salary_max=35000,
+            currency="GBP",
+            salary_period="year",
+            salary_text="£30,000-£35,000",
+        )
+    )
+    follow_up_at = datetime.now(UTC) + timedelta(days=2)
+    store.update_status(first.id, Status.INTERESTING, "reviewed", follow_up_at)
+    first_seen = first.first_seen
+    history = store.history(first.id)
+
+    refreshed = store.upsert(job(location="", remote_scope="unknown", employment_type="unknown"))
+
+    assert refreshed.salary_min is None
+    assert refreshed.salary_max is None
+    assert refreshed.currency is None
+    assert refreshed.salary_period is None
+    assert refreshed.salary_text == ""
+    assert refreshed.location == ""
+    assert refreshed.remote_scope == "unknown"
+    assert refreshed.employment_type == "unknown"
+    assert score_fit(refreshed, Profile())["exclusions"] == []
+    assert refreshed.status == Status.INTERESTING
+    assert refreshed.first_seen == first_seen
+    assert refreshed.follow_up_at == follow_up_at
+    assert store.history(first.id) == history
+    assert refreshed.sources[0].fields["salary_min"] is None
+
+
+def test_refreshed_source_falls_back_to_other_retained_salary_bundle(store):
+    store.upsert(
+        job(
+            salary_min=30000,
+            salary_max=35000,
+            currency="GBP",
+            salary_period="year",
+            salary_text="£30,000-£35,000",
+        )
+    )
+    store.upsert(
+        job(
+            "scout",
+            "other",
+            salary_min=50000,
+            salary_max=60000,
+            currency="USD",
+            salary_period="month",
+            salary_is_predicted=True,
+            salary_text="$50,000-$60,000 monthly, estimated",
+        )
+    )
+
+    refreshed = store.upsert(job())
+
+    assert refreshed.salary_min == 50000
+    assert refreshed.salary_max == 60000
+    assert refreshed.currency == "USD"
+    assert refreshed.salary_period == "month"
+    assert refreshed.salary_is_predicted is True
+    assert refreshed.salary_text == "$50,000-$60,000 monthly, estimated"
+    assert {source.source_id for source in refreshed.sources} == {"a", "other"}
 
 
 def test_followups_do_not_send_or_modify_terminal_states(store):

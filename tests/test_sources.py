@@ -306,6 +306,54 @@ async def test_weworkremotely_parses_rss_filters_terms_and_cleans_markup(monkeyp
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "feed",
+    [
+        b'<rss version="2.0"><channel><title>Empty</title></channel></rss>',
+        b'<feed xmlns="http://www.w3.org/2005/Atom"><title>Empty</title></feed>',
+    ],
+    ids=["empty-rss", "empty-atom"],
+)
+async def test_weworkremotely_accepts_valid_empty_feeds(monkeypatch, feed):
+    async def fake_fetch(url, params=None):
+        return feed
+
+    monkeypatch.setattr(public, "fetch", fake_fetch)
+
+    assert await public.weworkremotely("support") == []
+
+
+@pytest.mark.asyncio
+async def test_weworkremotely_html_denial_is_error_and_not_cached(monkeypatch, tmp_path):
+    denial = b"<html><title>Access denied</title><body>Please log in</body></html>"
+    valid_feed = b"""<rss version="2.0"><channel><title>Jobs</title>
+    <item><title>Acme: Support Engineer</title>
+    <link>https://weworkremotely.example/jobs/501</link>
+    <description>Support customers.</description></item>
+    </channel></rss>"""
+    responses = iter([denial, valid_feed])
+    calls = []
+
+    async def fake_fetch(url, params=None):
+        calls.append(url)
+        return next(responses)
+
+    monkeypatch.setattr(public, "fetch", fake_fetch)
+    service = CareerService(Store(str(tmp_path / "jobs.sqlite")))
+
+    first = await service.discover("support", sources=["weworkremotely"])
+    second = await service.discover("support", sources=["weworkremotely"])
+
+    assert first["source_status"]["weworkremotely"]["status"] == "error"
+    assert first["source_status"]["weworkremotely"]["error_type"] == "ValueError"
+    assert first["source_status"]["weworkremotely"]["cached"] is False
+    assert second["source_status"]["weworkremotely"]["status"] == "ok"
+    assert second["source_status"]["weworkremotely"]["retrieved_count"] == 1
+    assert second["source_status"]["weworkremotely"]["cached"] is False
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
 async def test_malformed_api_json_fails_instead_of_appearing_as_empty_results(monkeypatch):
     async def fake_fetch(url, params=None):
         return b'{"jobs":'
