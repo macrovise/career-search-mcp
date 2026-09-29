@@ -167,7 +167,12 @@ async def weworkremotely(query: str):
     data = feedparser.parse(
         await fetch("https://weworkremotely.com/categories/remote-customer-support-jobs.rss")
     )
-    if data.bozo and not data.entries:
+    # feedparser can parse a well-formed HTML denial/login page without setting
+    # bozo. Require a recognized feed version so that page cannot become a
+    # successful empty result and enter the source cache. Valid empty feeds are
+    # still accepted; preserve feedparser's existing tolerance when it recovers
+    # entries from a malformed but recognizable feed.
+    if not data.version.startswith(("rss", "atom")) or (data.bozo and not data.entries):
         raise ValueError("Invalid RSS response")
     jobs = []
     words = query.casefold().split()
