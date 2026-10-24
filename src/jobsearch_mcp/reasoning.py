@@ -22,7 +22,9 @@ DESIRABLE_MARKERS = re.compile(
 )
 HEADING_KIND = re.compile(
     r"^(?P<heading>requirements?|qualifications?|what (?:you(?:'ll)?|we) need|"
-    r"essential|must have|preferred|desirable|nice to have|bonus)(?:\s+skills?)?\s*:?$",
+    r"essential|required|must have|preferred|desirable|nice to have|bonus|"
+    r"what you bring|what we are looking for|qualifications and experience)"
+    r"(?:\s+skills?)?\s*:?$",
     re.I,
 )
 OTHER_HEADING = re.compile(
@@ -87,8 +89,35 @@ def mentions(text: str, term: str) -> bool:
     return bool(re.search(r"(?<!\w)" + re.escape(term) + r"(?:s)?(?!\w)", text, re.I))
 
 
-def excerpt(text: str, term: str) -> str:
-    match = re.search(re.escape(term), text, re.I)
+BENEFIT_HEADING = re.compile(
+    r"^(?:benefits(?:\s*(?:&|and)\s*perks)?|our benefits|what we offer|perks|"
+    r"compensation(?: and benefits)?|equal opportunity|why join)\s*:?$",
+    re.I,
+)
+RESPONSIBILITY_HEADING = re.compile(
+    r"^(?:key responsibilities|responsibilities|what you['\u2019]ll do|about you)\s*:?$", re.I
+)
+URL_PATTERN = re.compile(r"https?://[^\s<>\[\]()]+|www\.[^\s<>\[\]()]+", re.I)
+
+
+def candidate_text(text: str) -> str:
+    """Mask irrelevant spans, preserving offsets into the original source text."""
+    masked = URL_PATTERN.sub(lambda m: " " * len(m.group()), text)
+    result = []
+    benefits = False
+    for line in masked.splitlines(keepends=True):
+        heading = line.strip().strip("# :*-")
+        if BENEFIT_HEADING.fullmatch(heading):
+            benefits = True
+        elif HEADING_KIND.fullmatch(heading) or RESPONSIBILITY_HEADING.fullmatch(heading):
+            benefits = False
+        result.append(re.sub(r"[^\r\n]", " ", line) if benefits else line)
+    return "".join(result)
+
+
+def excerpt(text: str, term: str, *, candidate: bool = False) -> str:
+    searchable = candidate_text(text) if candidate else text
+    match = re.search(r"(?<!\w)" + re.escape(term) + r"(?:s)?(?!\w)", searchable, re.I)
     return text[max(0, match.start() - 90) : match.end() + 140] if match else ""
 
 
@@ -96,11 +125,21 @@ def _requirement_lines(description: str) -> list[tuple[str, str]]:
     """Return source quotes with conservative required/desirable/unknown labels."""
     rows: list[tuple[str, str]] = []
     heading_kind = "unknown"
-    chunks = re.split(r"[\r\n]+", description)
-    if len(chunks) == 1:
-        chunks = re.split(r"(?<=[.!?])\s+(?=[A-Z])", description)
-    for raw in chunks:
-        line = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", raw).strip()
+    masked = candidate_text(description)
+    separators = (
+        r"[\r\n]+" if "\n" in description or "\r" in description else r"(?<=[.!?])\s+(?=[A-Z])"
+    )
+    start = 0
+    spans = []
+    for boundary in re.finditer(separators, masked):
+        spans.append((start, boundary.start()))
+        start = boundary.end()
+    spans.append((start, len(description)))
+    for start, end in spans:
+        raw = description[start:end]
+        selected = masked[start:end]
+        line = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", selected).strip()
+        source_line = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", raw).strip()
         if not line:
             continue
         heading = HEADING_KIND.fullmatch(line)
@@ -123,7 +162,7 @@ def _requirement_lines(description: str) -> list[tuple[str, str]]:
             else heading_kind
         )
         if len(line) >= 12:
-            rows.append((kind, line[:700]))
+            rows.append((kind, source_line[:700]))
     return rows[:30]
 
 
@@ -151,10 +190,10 @@ def requirement_fit(job: Job, profile: Profile) -> dict:
     evidence_rows = _evidence_rows(profile)
     requirements = []
     counts = {"essential": 0, "desirable": 0, "unknown": 0}
-    statuses = {"evidenced": 0, "transferable": 0, "not_evidenced": 0}
+    statuses = {"evidenced": 0, "partly_evidenced": 0, "transferable": 0, "not_evidenced": 0}
     for index, (kind, quote) in enumerate(_requirement_lines(job.description), start=1):
         counts[kind] += 1
-        requirement_words = _meaningful_words(quote)
+        requirement_words = _meaningful_words(candidate_text(quote))
         direct, transferable = [], []
         for label, resume_quote in evidence_rows:
             label_words = _meaningful_words(label)
@@ -166,6 +205,37 @@ def requirement_fit(job: Job, profile: Profile) -> dict:
         direct = direct[:3]
         transferable = transferable[:3] if not direct else []
         status = "evidenced" if direct else "transferable" if transferable else "not_evidenced"
+        atoms = [
+            term
+            for term in (
+                "Windows",
+                "Linux",
+                "macOS",
+                "Python",
+                "SQL",
+                "Kubernetes",
+                "Docker",
+                "JavaScript",
+                "AWS",
+                "Azure",
+                "Postman",
+                "Datadog",
+                "Jira",
+                "Slack",
+            )
+            if mentions(candidate_text(quote), term)
+        ]
+        missing_atoms = [
+            term
+            for term in atoms
+            if not any(mentions(resume_quote, term) for _, resume_quote in evidence_rows)
+        ]
+        alternative = bool(re.search(r"\bor\b|and/or", quote, re.I)) and len(atoms) > 1
+        if direct and missing_atoms and alternative:
+            status = "transferable"
+            missing_atoms = []
+        elif direct and missing_atoms:
+            status = "partly_evidenced"
         statuses[status] += 1
         requirements.append(
             {
@@ -174,10 +244,15 @@ def requirement_fit(job: Job, profile: Profile) -> dict:
                 "job_quote": quote,
                 "classification_basis": "explicit wording or section heading",
                 "evidence_status": status,
+                "capabilities_not_evidenced": missing_atoms,
                 "resume_evidence": direct,
                 "transferable_evidence": transferable,
                 "gap_note": (
-                    None
+                    "Alternative capabilities require review; no conjunctive gap is inferred."
+                    if alternative
+                    else "Partly evidenced; verify remaining capabilities."
+                    if status == "partly_evidenced"
+                    else None
                     if direct
                     else (
                         "Related evidence only; ChatGPT must explain the transfer without "
@@ -263,12 +338,12 @@ def score_fit(job: Job, profile: Profile, now: datetime | None = None) -> dict:
     tracking = application_tracking(job)
     prefs = profile.preferences
     text = job.title + "\n" + job.description
-    keywords = [skill for skill in prefs.positive_skills if mentions(text, skill)]
+    keywords = [skill for skill in prefs.positive_skills if mentions(candidate_text(text), skill)]
     verified = {s.casefold() for s in profile.verified_skills}
     matched = [
         {
             "skill": skill,
-            "job_excerpt": excerpt(text, skill),
+            "job_excerpt": excerpt(text, skill, candidate=True),
             "resume_excerpt": profile.skill_evidence.get(
                 skill,
                 next(
@@ -287,7 +362,7 @@ def score_fit(job: Job, profile: Profile, now: datetime | None = None) -> dict:
     missing = [
         {
             "skill": skill,
-            "job_excerpt": excerpt(text, skill),
+            "job_excerpt": excerpt(text, skill, candidate=True),
             "status": "not evidenced in profile; not proof of inability",
         }
         for skill in keywords
@@ -304,7 +379,10 @@ def score_fit(job: Job, profile: Profile, now: datetime | None = None) -> dict:
         exclusions.append("Excluded employment type: " + job.employment_type)
     elif job.employment_type == "unknown":
         concerns.append("Employment type not disclosed")
-    if job.remote_scope in {"onsite", "hybrid"}:
+    if (
+        job.remote_scope in {"onsite", "hybrid"}
+        and job.remote_scope not in prefs.preferred_remote_scopes
+    ):
         exclusions.append("Not fully remote")
     elif job.remote_scope == "worldwide":
         positives.append("Worldwide remote is the strongest location preference")
@@ -371,7 +449,9 @@ def score_fit(job: Job, profile: Profile, now: datetime | None = None) -> dict:
         "job_id": job.id,
         "matched_requirements": matched,
         "missing_skills": missing,
-        "target_keyword_evidence": [{"skill": s, "excerpt": excerpt(text, s)} for s in keywords],
+        "target_keyword_evidence": [
+            {"skill": s, "excerpt": excerpt(text, s, candidate=True)} for s in keywords
+        ],
         "requirement_fit": requirement_fit(job, profile),
         "operational_constraints": constraints,
         "location_eligibility": eligibility,
@@ -393,6 +473,28 @@ def writing_brief(kind: str, job: Job, profile: Profile) -> dict:
         "reasoning_owner": "ChatGPT",
         "task": kind,
         "instructions": GUIDANCE,
+        "writing_guidance": {
+            "locale": "en-GB",
+            "voice": "Plain, direct, calm British English; preserve Trevor's approved wording.",
+            "cv": (
+                "Select and reorder evidence before rewriting. Preserve quantified impact, "
+                "metric scope, dates and skill depth. Keep the approved one-page "
+                "single-column structure."
+            ),
+            "cover_letter": "Usually 150-220 words. Choose one or two relevant examples; explain "
+            "the connection to this role without repeating the CV or inventing motivation.",
+            "avoid": [
+                "generic enthusiasm",
+                "company flattery",
+                "results-driven professional",
+                "proven track record",
+                "uniquely positioned",
+                "repeated three-part lists",
+            ],
+            "review": "Read the complete requirement: matching one operating system does not "
+            "establish all systems in a compound requirement. Employer benefits are not candidate "
+            "requirements. Keyword coverage is not hiring probability. Flag ambiguous metrics.",
+        },
         "fit_evidence": score_fit(job, profile),
         "job": job.model_dump(mode="json"),
         "profile": profile.model_dump(mode="json"),

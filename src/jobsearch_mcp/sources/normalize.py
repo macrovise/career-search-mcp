@@ -25,7 +25,9 @@ def date_value(value):
 
 
 def clean(value) -> str:
-    return html.unescape(re.sub("<[^>]+>", " ", str(value or ""))).strip()
+    text = str(value or "")
+    text = re.sub(r"</?(?:h[1-6]|p|div|li|ul|ol|br|section)\b[^>]*>", "\n", text, flags=re.I)
+    return html.unescape(re.sub("<[^>]+>", " ", text)).strip()
 
 
 def restrictions(value) -> list[str]:
