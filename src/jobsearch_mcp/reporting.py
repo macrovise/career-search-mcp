@@ -9,7 +9,7 @@ import re
 
 from .applications import application_tracking
 from .models import ExternalJobEvidence, Job, Profile
-from .reasoning import excerpt, mentions, score_fit
+from .reasoning import candidate_text, excerpt, mentions, score_fit
 from .sources.normalize import make_job
 from .store import canonical_url
 
@@ -60,7 +60,7 @@ def ats_estimate(job: Job, profile: Profile, cv_variant: str | None = None) -> d
     terms = {key: list(values) for key, values in TERMS.items()}
     matched, missing = [], []
     for term, aliases in terms.items():
-        job_alias = next((a for a in aliases if mentions(job.description, a)), None)
+        job_alias = next((a for a in aliases if mentions(candidate_text(job.description), a)), None)
         if job_alias is None:
             continue
         quote = next(
@@ -73,7 +73,7 @@ def ats_estimate(job: Job, profile: Profile, cv_variant: str | None = None) -> d
             ),
             None,
         )
-        item = {"term": term, "job_excerpt": excerpt(job.description, job_alias)}
+        item = {"term": term, "job_excerpt": excerpt(job.description, job_alias, candidate=True)}
         if quote:
             matched.append({**item, "resume_excerpt": quote})
         else:
